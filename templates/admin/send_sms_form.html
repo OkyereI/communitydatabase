@@ -1,0 +1,30 @@
+{% extends 'admin/master.html' %}
+
+{% block body %}
+  <div class="container">
+    <div class="row">
+      <div class="col-md-8 col-md-offset-2">
+        <h3>Send SMS to {{ member.first_name }} {{ member.last_name }}</h3>
+        <p><strong>Contact Number:</strong> {{ member.contact_number if member.contact_number else 'N/A' }}</p>
+        <p><strong>Verification Code:</strong> {{ member.verification_code if member.verification_code else 'N/A' }}</p>
+
+        <hr>
+
+        <form method="POST" action="{{ url_for('communitymember.send_sms_view', member_id=member.id) }}">
+          <div class="form-group">
+            <label for="message">Your Message:</label>
+            <textarea class="form-control" id="message" name="message" rows="5" required
+                      placeholder="Enter your message here. The SMS will be formatted as:
+Verification code: [Member's Verification Code]
+Name: [Member's Full Name]
+.....................................
+[Your Message Here]
+From: Kenyasi N1 Youth association"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">Send SMS</button>
+          <a href="{{ url_for('communitymember.index_view') }}" class="btn btn-default">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

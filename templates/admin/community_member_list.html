@@ -1,0 +1,20 @@
+{% extends 'admin/model/list.html' %}
+
+{# This block adds the 'Actions' header to the table #}
+{% block list_table_header %}
+    {{ super() }}
+    <th class="col-md-1 act">Actions</th>
+{% endblock %}
+
+{# This block adds the action buttons to each row #}
+{% block list_row %}
+    {{ super() }}
+    <td class="col-md-1 act">
+        <a href="{{ url_for('communitymember.send_sms_view', member_id=row.id) }}" class="btn btn-primary btn-sm" title="Send SMS"> {# UPDATED URL #}
+            <i class="fa fa-paper-plane"></i>
+        </a>
+        <a href="{{ url_for('print_member_info', member_id=row.id) }}" class="btn btn-info btn-sm" title="Print Member Info" target="_blank">
+            <i class="fa fa-print"></i>
+        </a>
+    </td>
+{% endblock %}
