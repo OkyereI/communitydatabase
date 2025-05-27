@@ -371,6 +371,8 @@ class LoginForm(FlaskForm):
 def index():
     return redirect(url_for('login'))
 
+# ... (your existing app.py code) ...
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -378,8 +380,30 @@ def login():
 
     form = LoginForm()
     if form.validate_on_submit():
-        user = db.session.query(User).filter_by(username=form.username.data).first()
-        if user is None or not user.check_password(form.password.data):
+        username_attempt = form.username.data
+        password_attempt = form.password.data
+
+        # --- ADD THESE DEBUG PRINT STATEMENTS HERE ---
+        print(f"\n--- Login Attempt DEBUG ---")
+        print(f"Attempting login for username: '{username_attempt}'")
+        print(f"Password attempt: '{password_attempt}'") # Be careful not to log passwords in production!
+        # --- END DEBUG STATEMENTS ---
+
+        user = db.session.query(User).filter_by(username=username_attempt).first()
+
+        # --- ADD THESE DEBUG PRINT STATEMENTS HERE ---
+        print(f"User found in DB: {'Yes' if user else 'No'}")
+        if user:
+            print(f"Stored username: '{user.username}'")
+            print(f"Stored password_hash: '{user.password_hash}'")
+            password_check_result = user.check_password(password_attempt)
+            print(f"check_password_hash result: {password_check_result}")
+        else:
+            print(f"User not found in database.")
+        print(f"---------------------------\n")
+        # --- END DEBUG STATEMENTS ---
+
+        if user is None or not user.check_password(password_attempt):
             flash('Invalid username or password', 'danger')
             return redirect(url_for('login'))
         login_user(user, remember=form.remember_me.data)
@@ -388,6 +412,7 @@ def login():
         return redirect(next_page or url_for('admin.index'))
     return render_template('login.html', form=form)
 
+# ... (rest of your app.py code) ...
 @app.route('/logout')
 @login_required
 def logout():
@@ -414,17 +439,17 @@ def init_db_command():
     print("Attempting to initialize database...")
     with app.app_context():
         # Optional: uncomment db.drop_all() if you want to completely reset the database
-        # db.drop_all() 
+        # db.drop_all()
         db.create_all()
 
-        # Define the new admin credentials
-        new_admin_username = 'executive' # Changed username
-        new_admin_password = 'KSYA2025'   # Changed password
+        # Define the NEW admin credentials
+        new_admin_username = 'user'        # NEW Username
+        new_admin_password = 'executive@2025' # NEW Password
 
         admin_user = db.session.query(User).filter_by(username=new_admin_username).first()
         if not admin_user:
             admin_user = User(username=new_admin_username)
-            admin_user.set_password(new_admin_password) 
+            admin_user.set_password(new_admin_password)
             db.session.add(admin_user)
             db.session.commit()
             print(f"Database initialized: Tables created and admin user '{new_admin_username}' (password '{new_admin_password}') created.")
@@ -436,64 +461,137 @@ def init_db_command():
                 print(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}'.")
             else:
                 print(f"Database tables created. Admin user '{new_admin_username}' already exists (not created again).")
-        
-        # Optional: Remove old 'admin' user if it exists and is different from the new one
-        old_admin_user = db.session.query(User).filter_by(username='admin').first()
-        if old_admin_user and old_admin_user.username != new_admin_username:
-            db.session.delete(old_admin_user)
-            db.session.commit()
-            print("Old 'admin' user removed from database.")
 
-        # Optional: Remove old 'k1youthassociation' user if it exists and is different from the new one
-        old_k1youthassociation_user = db.session.query(User).filter_by(username='k1youthassociation').first()
-        if old_k1youthassociation_user and old_k1youthassociation_user.username != new_admin_username:
-            db.session.delete(old_k1youthassociation_user)
-            db.session.commit()
-            print("Old 'k1youthassociation' user removed from database.")
+        # Optional: Remove old 'admin', 'k1youthassociation', 'executive' users if they exist
+        old_usernames = ['admin', 'k1youthassociation', 'executive'] # Include 'executive'
+        for old_user_name in old_usernames:
+            if old_user_name != new_admin_username: # Only delete if it's not the new active user
+                old_user = db.session.query(User).filter_by(username=old_user_name).first()
+                if old_user:
+                    db.session.delete(old_user)
+                    db.session.commit()
+                    print(f"Old '{old_user_name}' user removed from database.")
 
 
     print("Database initialization complete.")
 
+# app.py
 
-if __name__ == '__main__':
-    # This block is for development use (python app.py) and is NOT run by Gunicorn.
-    # It ensures tables exist and the specific admin user is created/updated for local dev.
-    with app.app_context():
-        db.create_all() # Ensure tables exist for dev
+# ... (your existing code) ...
 
-        # Define the new admin credentials for local run
-        new_admin_username = 'executive' # Changed username
-        new_admin_password = 'KSYA2025'   # Changed password
+# Add this temporary route for debugging
+@app.route('/test_password_hash')
+def test_password_hash():
+    test_password = 'executive@2025'
+    
+    # Generate the hash for the test password
+    generated_hash = generate_password_hash(test_password)
+    
+    # Get the user from the database
+    user = db.session.query(User).filter_by(username='user').first()
+
+    output = []
+    output.append(f"<h2>Password Hashing Test</h2>")
+    output.append(f"<p>Test Password: <b>{test_password}</b></p>")
+    output.append(f"<p>Generated Hash for test_password: <code>{generated_hash}</code></p>")
+
+    if user:
+        output.append(f"<p>User 'user' found in database.</p>")
+        output.append(f"<p>Stored password_hash for 'user': <code>{user.password_hash}</code></p>")
         
-        admin_user = db.session.query(User).filter_by(username=new_admin_username).first()
-        if not admin_user:
-            admin_user = User(username=new_admin_username)
-            admin_user.set_password(new_admin_password) 
-            db.session.add(admin_user)
-            db.session.commit()
-            app.logger.info(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
-            print(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
+        # Compare the test password with the stored hash
+        check_with_stored = check_password_hash(test_password, user.password_hash)
+        output.append(f"<p>Check `test_password` ('{test_password}') against `stored_hash`: <b>{check_with_stored}</b></p>")
+        
+        # Compare the test password with the newly generated hash
+        check_with_generated = check_password_hash(test_password, generated_hash)
+        output.append(f"<p>Check `test_password` ('{test_password}') against `generated_hash`: <b>{check_with_generated}</b></p>")
+        
+        # Add a specific check for the exact hash values
+        if user.password_hash == generated_hash:
+            output.append("<p><b>CRITICAL: Stored hash EXACTLY MATCHES newly generated hash!</b> (This might mean the hash is simple or the user was just reset)</p>")
         else:
-            # Ensure password is correct for local dev convenience
-            if not admin_user.check_password(new_admin_password):
-                admin_user.set_password(new_admin_password)
-                db.session.commit()
-                app.logger.info(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
-                print(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
+            output.append("<p><b>CRITICAL: Stored hash DOES NOT EXACTLY MATCH newly generated hash!</b> (This is normal after set_password, as salts are random)</p>")
 
-        # Optional: Remove old 'admin' user if it exists and is different from the new one
-        old_admin_user = db.session.query(User).filter_by(username='admin').first()
-        if old_admin_user and old_admin_user.username != new_admin_username:
-            db.session.delete(old_admin_user)
+    else:
+        output.append(f"<p>User 'user' NOT found in database. Please run `flask init-db`.</p>")
+
+    return Response("".join(output))
+
+# ... (rest of your app.py, including your @app.cli.command("init-db") and if __name__ == '__main__': blocks) ...
+
+
+# if __name__ == '__main__':
+#     # This block is for development use (python app.py) and is NOT run by Gunicorn.
+#     # It ensures tables exist and the specific admin user is created/updated for local dev.
+#     with app.app_context():
+#         db.create_all() # Ensure tables exist for dev
+
+#         # Define the NEW admin credentials for local run
+#         new_admin_username = 'executive'        # NEW Username
+#         new_admin_password = 'KSYA2025' # NEW Password
+
+#         admin_user = db.session.query(User).filter_by(username=new_admin_username).first()
+#         if not admin_user:
+#             admin_user = User(username=new_admin_username)
+#             admin_user.set_password(new_admin_password)
+#             db.session.add(admin_user)
+#             db.session.commit()
+#             app.logger.info(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
+#             print(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
+#         else:
+#             # Ensure password is correct for local dev convenience
+#             if not admin_user.check_password(new_admin_password):
+#                 admin_user.set_password(new_admin_password)
+#                 db.session.commit()
+#                 app.logger.info(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
+#                 print(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
+
+#         # Optional: Remove old 'admin', 'k1youthassociation', 'executive' users if they exist
+#         old_usernames = ['admin', 'k1youthassociation', 'executive'] # Include 'executive'
+#         for old_user_name in old_usernames:
+#             if old_user_name != new_admin_username: # Only delete if it's not the new active user
+#                 old_user = db.session.query(User).filter_by(username=old_user_name).first()
+#                 if old_user:
+#                     db.session.delete(old_user)
+#                     db.session.commit()
+#                     app.logger.info(f"Old '{old_user_name}' user removed for local dev.")
+if __name__ == '__main__':
+    # --- TEMPORARY TEST CODE ONLY ---
+    print("\n--- Running direct password test in __main__ block ---")
+
+    with app.app_context():
+        db.create_all() # Ensure tables exist
+
+        test_username = 'tester'
+        test_password = 'test' # Super simple password
+
+        # Clean up old test user if it exists
+        tester_user = db.session.query(User).filter_by(username=test_username).first()
+        if tester_user:
+            db.session.delete(tester_user)
             db.session.commit()
-            app.logger.info("Old 'admin' user removed for local dev.")
+            print(f"Old user '{test_username}' removed.")
 
-        # Optional: Remove old 'k1youthassociation' user if it exists and is different from the new one
-        old_k1youthassociation_user = db.session.query(User).filter_by(username='k1youthassociation').first()
-        if old_k1youthassociation_user and old_k1youthassociation_user.username != new_admin_username:
-            db.session.delete(old_k1youthassociation_user)
-            db.session.commit()
-            app.logger.info("Old 'k1youthassociation' user removed for local dev.")
+        # Create a new user with the super simple password
+        tester_user = User(username=test_username)
+        tester_user.set_password(test_password)
+        db.session.add(tester_user)
+        db.session.commit()
+        print(f"User '{test_username}' created with password '{test_password}'.")
 
+        # Retrieve the user fresh from the DB
+        retrieved_user = db.session.query(User).filter_by(username=test_username).first()
+        if retrieved_user:
+            print(f"Retrieved user: {retrieved_user.username}")
+            print(f"Stored hash: {retrieved_user.password_hash}")
+
+            # Directly test check_password on the retrieved user
+            is_password_correct = retrieved_user.check_password(test_password)
+            print(f"Calling retrieved_user.check_password('{test_password}'): {is_password_correct}")
+        else:
+            print(f"ERROR: Could not retrieve user '{test_username}' after creation.")
+
+        print("--- End direct password test ---")
 
     app.run(debug=True)
