@@ -481,43 +481,43 @@ def init_db_command():
 # ... (your existing code) ...
 
 # Add this temporary route for debugging
-@app.route('/test_password_hash')
-def test_password_hash():
-    test_password = 'executive@2025'
+# @app.route('/test_password_hash')
+# def test_password_hash():
+#     test_password = 'executive@2025'
     
-    # Generate the hash for the test password
-    generated_hash = generate_password_hash(test_password)
+#     # Generate the hash for the test password
+#     generated_hash = generate_password_hash(test_password)
     
-    # Get the user from the database
-    user = db.session.query(User).filter_by(username='user').first()
+#     # Get the user from the database
+#     user = db.session.query(User).filter_by(username='user').first()
 
-    output = []
-    output.append(f"<h2>Password Hashing Test</h2>")
-    output.append(f"<p>Test Password: <b>{test_password}</b></p>")
-    output.append(f"<p>Generated Hash for test_password: <code>{generated_hash}</code></p>")
+#     output = []
+#     output.append(f"<h2>Password Hashing Test</h2>")
+#     output.append(f"<p>Test Password: <b>{test_password}</b></p>")
+#     output.append(f"<p>Generated Hash for test_password: <code>{generated_hash}</code></p>")
 
-    if user:
-        output.append(f"<p>User 'user' found in database.</p>")
-        output.append(f"<p>Stored password_hash for 'user': <code>{user.password_hash}</code></p>")
+#     if user:
+#         output.append(f"<p>User 'user' found in database.</p>")
+#         output.append(f"<p>Stored password_hash for 'user': <code>{user.password_hash}</code></p>")
         
-        # Compare the test password with the stored hash
-        check_with_stored = check_password_hash(test_password, user.password_hash)
-        output.append(f"<p>Check `test_password` ('{test_password}') against `stored_hash`: <b>{check_with_stored}</b></p>")
+#         # Compare the test password with the stored hash
+#         check_with_stored = check_password_hash(test_password, user.password_hash)
+#         output.append(f"<p>Check `test_password` ('{test_password}') against `stored_hash`: <b>{check_with_stored}</b></p>")
         
-        # Compare the test password with the newly generated hash
-        check_with_generated = check_password_hash(test_password, generated_hash)
-        output.append(f"<p>Check `test_password` ('{test_password}') against `generated_hash`: <b>{check_with_generated}</b></p>")
+#         # Compare the test password with the newly generated hash
+#         check_with_generated = check_password_hash(test_password, generated_hash)
+#         output.append(f"<p>Check `test_password` ('{test_password}') against `generated_hash`: <b>{check_with_generated}</b></p>")
         
-        # Add a specific check for the exact hash values
-        if user.password_hash == generated_hash:
-            output.append("<p><b>CRITICAL: Stored hash EXACTLY MATCHES newly generated hash!</b> (This might mean the hash is simple or the user was just reset)</p>")
-        else:
-            output.append("<p><b>CRITICAL: Stored hash DOES NOT EXACTLY MATCH newly generated hash!</b> (This is normal after set_password, as salts are random)</p>")
+#         # Add a specific check for the exact hash values
+#         if user.password_hash == generated_hash:
+#             output.append("<p><b>CRITICAL: Stored hash EXACTLY MATCHES newly generated hash!</b> (This might mean the hash is simple or the user was just reset)</p>")
+#         else:
+#             output.append("<p><b>CRITICAL: Stored hash DOES NOT EXACTLY MATCH newly generated hash!</b> (This is normal after set_password, as salts are random)</p>")
 
-    else:
-        output.append(f"<p>User 'user' NOT found in database. Please run `flask init-db`.</p>")
+#     else:
+#         output.append(f"<p>User 'user' NOT found in database. Please run `flask init-db`.</p>")
 
-    return Response("".join(output))
+#     return Response("".join(output))
 
 # ... (rest of your app.py, including your @app.cli.command("init-db") and if __name__ == '__main__': blocks) ...
 
