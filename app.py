@@ -5,7 +5,7 @@ import random
 import string
 import requests
 from datetime import datetime, date 
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 from flask import Flask, redirect, url_for, flash, request, render_template, Response
 from flask_sqlalchemy import SQLAlchemy
