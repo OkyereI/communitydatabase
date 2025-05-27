@@ -5,6 +5,7 @@ import random
 import string
 import requests
 from datetime import datetime, date 
+from dotenv import load_dotenv
 
 from flask import Flask, redirect, url_for, flash, request, render_template, Response
 from flask_sqlalchemy import SQLAlchemy
@@ -43,7 +44,7 @@ login_manager.login_message_category = "warning"
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128))
+    password_hash = db.Column(db.String(256))
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -440,7 +441,7 @@ def init_db_command():
     with app.app_context():
         # Optional: uncomment db.drop_all() if you want to completely reset the database
         # db.drop_all()
-        db.create_all()
+        # db.create_all()
 
         # Define the NEW admin credentials
         new_admin_username = 'user'        # NEW Username
