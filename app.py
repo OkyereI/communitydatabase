@@ -441,7 +441,7 @@ def init_db_command():
     with app.app_context():
         # Optional: uncomment db.drop_all() if you want to completely reset the database
         # db.drop_all()
-        # db.create_all()
+        db.create_all()
 
         # Define the NEW admin credentials
         new_admin_username = 'user'        # NEW Username
