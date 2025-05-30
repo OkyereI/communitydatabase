@@ -1,20 +1,122 @@
-{% extends 'admin/model/list.html' %}
+{% extends 'admin/model_list.html' %}
+{% import 'admin/macros.html' as macros with context %} {# Ensure macros are imported here #}
 
-{# This block adds the 'Actions' header to the table #}
-{% block list_table_header %}
-    {{ super() }}
-    <th class="col-md-1 act">Actions</th>
-{% endblock %}
+{% block model_list_table %}
+  <div class="row">
+    <div class="col-md-12">
+      <div class="text-right" style="margin-bottom: 15px;">
+        <a href="{{ url_for('export_members_excel') }}" class="btn btn-success">
+          <span class="glyphicon glyphicon-download-alt"></span> Export to Excel
+        </a>
+      </div>
+    </div>
+  </div>
 
-{# This block adds the action buttons to each row #}
-{% block list_row %}
-    {{ super() }}
-    <td class="col-md-1 act">
-        <a href="{{ url_for('communitymember.send_sms_view', member_id=row.id) }}" class="btn btn-primary btn-sm" title="Send SMS"> {# UPDATED URL #}
-            <i class="fa fa-paper-plane"></i>
-        </a>
-        <a href="{{ url_for('print_member_info', member_id=row.id) }}" class="btn btn-info btn-sm" title="Print Member Info" target="_blank">
-            <i class="fa fa-print"></i>
-        </a>
-    </td>
+  <form action="{{ admin_view.get_url('.action_view') }}" method="POST" class="form-inline">
+    <input type="hidden" name="url" value="{{ macros.return_url() }}"> {# Corrected: Use macros.return_url() #}
+    <input type="hidden" name="action" value="">
+
+    {# Include the header for search and bulk actions #}
+    {% include 'admin/model_list_table_header.html' %}
+
+    <table class="table table-striped table-bordered table-hover model-list">
+        <thead>
+            <tr>
+                {# The checkbox column for bulk actions #}
+                {% if admin_view.can_delete %}
+                <th class="list-checkbox">
+                    <input type="checkbox" name="row_checkbox" class="action-checkbox-all" />
+                </th>
+                {% endif %}
+                {# Loop through defined columns to create headers #}
+                {% for c, name in list_columns %}
+                <th class="column-header {{ c }}
+                    {% if sort_column == c %}
+                        {% if sort_desc %}
+                            desc
+                        {% else %}
+                            asc
+                        {% endif %}
+                    {% endif %}
+                    ">
+                    {% if admin_view.is_sortable(c) %}
+                        {# Link for sorting #}
+                        <a href="{{ url_for('.index_view', sort=c, sort_desc=not sort_desc if sort_column == c else False, page=page, page_size=page_size, search=search, filters=filters) }}" title="{{ _gettext('Sort by %(name)s', name=name) }}">
+                        {{ name }}
+                        {% if sort_column == c %}
+                            {% if sort_desc %}
+                            <span class="fa fa-chevron-down glyphicon glyphicon-chevron-down"></span>
+                            {% else %}
+                            <span class="fa fa-chevron-up glyphicon glyphicon-chevron-up"></span>
+                            {% endif %}
+                        {% endif %}
+                        </a>
+                    {% else %}
+                        {{ name }}
+                    {% endif %}
+                </th>
+                {% endfor %}
+                {# Actions column header #}
+                {% if admin_view.column_display_actions %}
+                <th class="col-actions">{{ _gettext('Actions') }}</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in model_list.items %}
+            <tr>
+                {# Checkbox for individual row selection for bulk actions #}
+                {% if admin_view.can_delete %}
+                <td class="list-checkbox-column">
+                    <input type="checkbox" name="rowid" class="action-row-selector" value="{{ admin_view.get_pk_value(row) }}" />
+                </td>
+                {% endif %}
+                {# Display column values for each row - DIRECTLY ACCESSING ATTRIBUTES FOR DEBUGGING #}
+                {# If this displays data, the issue is with admin_view.get_list_value #}
+                <td>{{ row.first_name }}</td>
+                <td>{{ row.last_name }}</td>
+                <td>{{ row.gender }}</td>
+                <td>{{ row.contact_number }}</td>
+                <td>{{ row.area_code }}</td>
+                <td>{{ row.employment_status }}</td>
+                <td>{{ row.verification_code }}</td>
+                <td>{{ row.id_card_number }}</td>
+                <td>{{ row.created_at }}</td>
+                {# Action buttons for each row #}
+                {% if admin_view.column_display_actions %}
+                    <td>
+                        {# Default Flask-Admin edit button #}
+                        {% if admin_view.can_edit %}
+                            <a class="btn btn-default btn-xs" href="{{ admin_view.get_url('.edit_view', id=admin_view.get_pk_value(row), url=macros.return_url()) }}" title="{{ _gettext('Edit record') }}">
+                                <i class="glyphicon glyphicon-pencil"></i>
+                            </a>
+                        {% endif %}
+                        {# Default Flask-Admin delete button #}
+                        {% if admin_view.can_delete %}
+                            <form class="icon" method="POST" action="{{ admin_view.get_url('.delete_view', id=admin_view.get_pk_value(row), url=macros.return_url()) }}">
+                                <button onclick="return confirm('{{ _gettext('Are you sure you want to delete this record?') }}');" class="btn btn-danger btn-xs" title="{{ _gettext('Delete record') }}">
+                                    <i class="glyphicon glyphicon-trash"></i>
+                                </button>
+                            </form>
+                        {% endif %}
+                        {# Custom buttons from column_formatters, if '_actions' is defined #}
+                        {% if '_actions' in admin_view.column_formatters %}
+                            {{ admin_view.column_formatters['_actions'](None, None, row, None) }}
+                        {% endif %}
+                    </td>
+                {% endif %}
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="{{ list_columns|length + (1 if admin_view.can_delete else 0) + (1 if admin_view.column_display_actions else 0) }}">
+                    {{ _gettext('No records found.') }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# Include pagination controls #}
+    {% include 'admin/model_list_pagination.html' %}
+</form>
 {% endblock %}

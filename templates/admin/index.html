@@ -59,8 +59,12 @@
                 <a href="{{ url_for('communitymember.index_view') }}" class="btn btn-info btn-lg">
                     <i class="fa fa-list"></i> View All Members
                 </a>
-                <a href="{{ url_for('communitymember.send_all_sms_view') }}" class="btn btn-warning btn-lg"> {# UPDATED URL #}
+                {# Updated URL for Send All Messages to the new custom route #}
+                <a href="{{ url_for('communitymember.send_all_sms_view') }}" class="btn btn-warning btn-lg">
                     <i class="fa fa-comments"></i> Send All Messages
+                </a>
+                <a href="{{ url_for('export_members_excel') }}" class="btn btn-primary btn-lg">
+                    <span class="glyphicon glyphicon-download-alt"></span> Export Members to Excel
                 </a>
             </div>
             <hr>
@@ -140,5 +144,28 @@
             </div>
         </div>
     </div>
+
+    <div class="row">
+      <div class="col-md-12">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title"><i class="fa fa-graduation-cap"></i> Summary of Professions</h3>
+          </div>
+          <div class="panel-body">
+            <ul class="list-group">
+              {% for profession, count in stats.professions.items() %}
+                <li class="list-group-item">
+                  {{ profession }}: <span class="badge">{{ count }}</span>
+                </li>
+              {% endfor %}
+              {% if not stats.professions %}
+                  <li class="list-group-item">No profession data available.</li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
 </div>
 {% endblock %}

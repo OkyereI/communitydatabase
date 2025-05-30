@@ -1,0 +1,65 @@
+{# This file should NOT extend any other template, and should NOT include itself. #}
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="well well-sm form-inline">
+            <form class="form-filter" method="GET" action="{{ admin_view.get_url('.index_view') }}">
+                {# Iterate directly over the 'filters' list #}
+                {% for flt in filters %}
+                    <input type="hidden" name="{{ flt.operation }}" value="{{ flt.value }}">
+                {% endfor %}
+
+                <div class="form-group">
+                    <label for="filter_column">{{ _gettext('Filter') }}:</label>
+                    <select id="filter_column" name="flt0_0" class="form-control">
+                        <option value="__select__">-- {{ _gettext('Select column') }} --</option>
+                        {% for filter in admin_view.column_filters %}
+                        <option value="{{ filter.column }}" {% if filters.flt0_0 == filter.column %}selected{% endif %}>{{ filter.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="filter_op">{{ _gettext('Operation') }}:</label>
+                    <select id="filter_op" name="flt0_1" class="form-control">
+                        {% for filter in admin_view.column_filters %}
+                            {% for op in filter.options %}
+                                <option class="flt-op-{{ filter.column }}" value="{{ op.operation }}" {% if filters.flt0_1 == op.operation and filters.flt0_0 == filter.column %}selected{% endif %}>{{ op.name }}</option>
+                            {% endfor %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="filter_value">{{ _gettext('Value') }}:</label>
+                    <input type="text" id="filter_value" name="flt0_2" value="{{ filters.flt0_2 }}" class="form-control" placeholder="{{ _gettext('Filter value') }}">
+                </div>
+
+                <button type="submit" class="btn btn-default">{{ _gettext('Apply') }}</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% block filter_js %}
+<script>
+    $(function() {
+        var column_selector = $('#filter_column');
+        var op_selector = $('#filter_op');
+
+        function updateFilterOps() {
+            var column = column_selector.val();
+            op_selector.find('option').hide();
+            op_selector.find('.flt-op-' + column).show();
+
+            var current_op = op_selector.val();
+            if (current_op == '__select__' || !op_selector.find('.flt-op-' + column + '[value="' + current_op + '"]').length) {
+                op_selector.val(op_selector.find('.flt-op-' + column + ':visible').first().val());
+            }
+        }
+
+        column_selector.change(updateFilterOps);
+        updateFilterOps();
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends admin_base_template %}
+
+{% import 'admin/lib.html' as lib with context %}
+{% import 'admin/macros.html' as macros with context %} {# ADD THIS LINE #}
+
+{% block head_tail %}
+    {{ super() }}
+{% endblock %}
+
+{% block body %}
+    <div class="row">
+        <div class="col-sm-3 col-md-2 sidebar">
+            {% block nav_bar %}
+            <ul class="nav nav-sidebar">
+                {% for item in admin_view.admin.menu %}
+                    {% if item.is_category %}
+                        <li class="dropdown{% if item.is_active(admin_view) %} active{% endif %}">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">{{ item.name }} <b class="caret"></b></a>
+                            <ul class="dropdown-menu">
+                            {% for subitem in item.get_children(admin_view) %}
+                                <li><a href="{{ subitem.url }}">{{ subitem.name }}</a></li>
+                            {% endfor %}
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li{% if item.is_active(admin_view) %} class="active"{% endif %}>
+                            <a href="{{ item.url }}">{{ item.name }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+            {% endblock %}
+        </div>
+        <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 main">
+            {% block page_content %}
+            {% block main_navigation %}{% endblock %}
+            {% block messages %}{% endblock %}
+            {% block body_inner %}{% endblock %}
+            {% endblock %}
+        </div>
+    </div>
+{% endblock %}
