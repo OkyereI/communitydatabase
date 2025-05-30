@@ -6,6 +6,8 @@ import string
 import requests
 from datetime import datetime, date # Ensure datetime is imported
 from dateutil.relativedelta import relativedelta # For age calculation
+import urllib.parse # Import for URL parsing and unquoting
+import re # NEW: Import for regular expressions
 
 from flask import Flask, redirect, url_for, flash, request, render_template, Response, send_file
 from flask_sqlalchemy import SQLAlchemy
@@ -351,6 +353,32 @@ class CommunityMemberView(ModelView):
         ''')
     }
 
+    # Override get_save_return_url to sanitize the URL
+    def get_save_return_url(self, model, is_created):
+        # Get the 'url' parameter from request.args
+        return_url_param = request.args.get('url')
+        
+        if return_url_param:
+            # Unquote it first to handle URL-encoded characters like %0A, %20
+            decoded_url = urllib.parse.unquote(return_url_param)
+            
+            # Use regex to remove all whitespace (spaces, tabs, newlines)
+            # and then strip any remaining leading/trailing whitespace
+            cleaned_url = re.sub(r'\s+', '', decoded_url).strip()
+
+            # Ensure it's an absolute path if it's not empty
+            if cleaned_url and not cleaned_url.startswith('/'):
+                cleaned_url = '/' + cleaned_url
+            
+            final_redirect_url = cleaned_url if cleaned_url else url_for('.index_view')
+        else:
+            final_redirect_url = url_for('.index_view') # Default fallback
+
+        # Log the final URL before returning
+        app.logger.warning(f"Final redirect URL after sanitization: '{final_redirect_url}'")
+        return final_redirect_url
+
+
     # Re-implement index_view to manually handle pagination and context
     @expose('/')
     @login_required
@@ -383,11 +411,13 @@ class CommunityMemberView(ModelView):
                             filter_operation = parts[1]
 
                             if filter_column_key == flt_obj.column.key and filter_operation == flt_obj.operation:
-                                query = flt_obj.apply(query, arg_value)
+                                # Sanitize arg_value: remove any newline characters
+                                sanitized_arg_value = arg_value.replace('\n', '').replace('\r', '')
+                                query = flt_obj.apply(query, sanitized_arg_value)
                                 active_filters.append({
                                     'column': flt_obj.column.key,
                                     'operation': flt_obj.operation,
-                                    'value': arg_value,
+                                    'value': sanitized_arg_value, # Use sanitized value here
                                     'name': flt_obj.name
                                 })
                                 break
