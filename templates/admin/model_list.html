@@ -1,4 +1,5 @@
     {% extends 'admin/master.html' %}
+    {# Removed: {% import 'admin/lib.html' as lib with context %} #}
 
     {% block head_tail %}
         {{ super() }}
@@ -86,12 +87,21 @@
                     {% if model_list.items %}
                     {% for row in model_list.items %}
                     <tr>
-                        {% block list_table_row_columns %}
-                        {{ lib.list_row_actions(admin_view, row) }}
+                        {# Content of list_table_row_columns block moved directly here #}
+                        {# Explicitly render checkbox column #}
+                        <td class="list-checkbox-column">
+                            {% if admin_view.can_delete %}
+                            <input type="checkbox" name="rowid" class="action-row-selector" value="{{ admin_view.get_pk_value(row) }}" />
+                            {% endif %}
+                        </td>
+                        {# Then iterate through the actual data columns #}
                         {% for c, name in list_columns %}
-                            <td class="col-{{ c }}">{% if c in form_columns %}{{ lib.display_property(row, c) }}{% else %}{{ lib.get_value(row, c) }}{% endif %}</td>
+                            <td class="col-{{ c }}">
+                                {# Use admin_view.get_list_value for robust value retrieval,
+                                   it will apply column_formatters automatically #}
+                                {{ admin_view.get_list_value(row, c) }}
+                            </td>
                         {% endfor %}
-                        {% endblock %}
                     </tr>
                     {% endfor %}
                     {% else %}
@@ -116,4 +126,3 @@
         {% include 'admin/model_list_pagination.html' %}
         {% endblock %}
     {% endblock %}
-    

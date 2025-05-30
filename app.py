@@ -1,106 +1,107 @@
-# app.py
-
 import os
-import random
-import string
-import requests
-from datetime import datetime, date # Ensure datetime is imported
+import re
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta # For age calculation
 import urllib.parse # Import for URL parsing and unquoting
-import re # NEW: Import for regular expressions
+import string, random # Import for generate_verification_code
 
-from flask import Flask, redirect, url_for, flash, request, render_template, Response, send_file
+from flask import Flask, redirect, url_for, request, render_template, flash, send_file
 from flask_sqlalchemy import SQLAlchemy
-from flask_admin import Admin, AdminIndexView, expose
-from flask_admin.contrib.sqla import ModelView # Ensure ModelView is correctly imported
-from flask_admin.contrib.sqla.filters import FilterLike, DateBetweenFilter
-from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, TextAreaField, IntegerField, BooleanField, SubmitField, PasswordField, DateField
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_admin import Admin, AdminIndexView, expose # Added expose
+from flask_admin.contrib.sqla import ModelView
+from flask_admin.form import form
+from flask_admin.model.fields import InlineFormField
+from sqlalchemy.event import listens_for
+from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Date, Enum, ForeignKey
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.exc import IntegrityError
+from flask_admin.form.widgets import DatePickerWidget # Corrected import path for DatePickerWidget
+from wtforms.fields import DateField, TextAreaField
+from wtforms import StringField, SubmitField, SelectField, PasswordField, BooleanField # Added SelectField, PasswordField, BooleanField
 from wtforms.validators import DataRequired, Length, Optional, Regexp, Email, ValidationError
-from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from sqlalchemy import func
-from markupsafe import Markup # Import Markup for rendering HTML in column_formatters
-
-# For Excel export
+from flask_admin.babel import gettext
+from markupsafe import Markup # Corrected import path for Markup
+from flask_admin.actions import action
 import pandas as pd
 from io import BytesIO
+from sqlalchemy.sql import func
+from collections import defaultdict
+from werkzeug.security import generate_password_hash, check_password_hash # Added for password hashing
+from flask_wtf import FlaskForm # ADDED: Import FlaskForm
+
 
 # For loading environment variables (like DATABASE_URL) from .env file
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv() # Load environment variables from .env file
 
-# --- GLOBAL VARIABLES & SETUP ---
+# Configuration
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Ensure necessary folders exist
-instance_path = os.path.join(basedir, 'instance')
-os.makedirs(instance_path, exist_ok=True)
-os.makedirs(os.path.join(basedir, 'templates', 'admin'), exist_ok=True)
-
-# Initialize Flask app
-app = Flask(__name__, instance_relative_config=True)
+app = Flask(__name__)
+# Use Config class from config.py for configuration
 app.config.from_object('config.Config')
 
-# Initialize SQLAlchemy
 db = SQLAlchemy(app)
-
-# Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
-login_manager.login_message = "Please log in to access this page."
-login_manager.login_message_category = "warning"
 
-# --- User Model for Admin Authentication ---
+# Models
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    # Increased length for scrypt hashes (from 128 to 256)
-    password_hash = db.Column(db.String(256), nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False) # Store hashed passwords!
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        # The password parameter comes first in check_password_hash
         return check_password_hash(self.password_hash, password)
 
     def __repr__(self):
-        return f'<User {self.username}>'
+        return self.username
 
-# --- Flask-Login user loader ---
+class CommunityMember(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(100), nullable=False) # Changed from full_name
+    last_name = db.Column(db.String(100), nullable=False) # Added last_name
+    phone_number = db.Column(db.String(20), unique=True, nullable=False)
+    gender = db.Column(db.Enum('Male', 'Female', name='gender_types'), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    employment_status = db.Column(db.Enum('Employed', 'Unemployed', 'Student', 'Retired', name='employment_status_types'), nullable=True)
+    profession = db.Column(db.String(120), nullable=True)
+    date_of_birth = db.Column(db.Date, nullable=True)
+    residence = db.Column(db.String(120), nullable=True)
+    area_code = db.Column(db.String(10), nullable=True)
+    is_verified = db.Column(db.Boolean, default=False)
+    registration_date = db.Column(db.DateTime, default=datetime.utcnow)
+    verification_code = db.Column(db.String(20), unique=True, nullable=True) # Added verification_code
+    id_card_number = db.Column(db.String(50), unique=True, nullable=True) # TEMPORARILY nullable=True for debugging
+
+    def __repr__(self):
+        return f"{self.first_name} {self.last_name}" # Updated __repr__
+
+
+# Flask-Login User Loader
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
-# --- CommunityMember Model ---
-class CommunityMember(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    first_name = db.Column(db.String(100), nullable=False)
-    last_name = db.Column(db.String(100), nullable=False)
-    date_of_birth = db.Column(db.Date, nullable=False)
-    gender = db.Column(db.String(10), nullable=False)
-    contact_number = db.Column(db.String(20), nullable=True)
-    email = db.Column(db.String(120), unique=True, nullable=True)
-    address = db.Column(db.Text, nullable=True)
-    employment_status = db.Column(db.String(50), nullable=True)
-    occupation = db.Column(db.String(100), nullable=True)
-    employer = db.Column(db.String(100), nullable=True)
-    parent_guardian_name = db.Column(db.String(200), nullable=True)
-    parent_guardian_contact = db.Column(db.String(20), nullable=True)
-    parent_guardian_address = db.Column(db.Text, nullable=True)
-    area_code = db.Column(db.String(10), nullable=False)
-    verification_code = db.Column(db.String(20), unique=True, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
-    # NEW: ID Card Field
-    id_card_number = db.Column(db.String(50), unique=True, nullable=False) # Made compulsory
+# Define a simple form for sending bulk SMS
+class BulkSMSForm(form.BaseForm):
+    message = TextAreaField('Message', validators=[DataRequired()])
+    submit = SubmitField('Send SMS to All Members')
 
-    def __repr__(self):
-        return f'<CommunityMember {self.first_name} {self.last_name}>'
+# Custom Age Validator
+def validate_age_range(form, field):
+    today = date.today()
+    if field.data:
+        age = relativedelta(today, field.data).years
+        if not (18 <= age <= 45):
+            raise ValidationError('Member must be between 18 and 45 years old.')
 
-# --- Verification Code Generation ---
+# Verification Code Generation
 def generate_verification_code(area_code: str) -> str:
     base_string = f"KN1YA{area_code}"
     if len(base_string) >= 10:
@@ -110,133 +111,39 @@ def generate_verification_code(area_code: str) -> str:
     random_suffix = ''.join(random.choice(characters) for _ in range(remaining_length))
     return f"{base_string}{random_suffix}"
 
-# --- SMS Sending Function ---
+# SMS Sending Function (Placeholder - integrate with actual SMS API)
 def send_sms(recipient: str, message: str, verification_code: str = "", first_name: str = "", last_name: str = "") -> bool:
-    print("DEBUG: Entering send_sms function. Using GET request logic.")
-
-    api_key = app.config['ARKESEL_API_KEY']
-    sender_id = app.config['ARKESEL_SENDER_ID']
-    url = "https://sms.arkesel.com/sms/api"
-
-    if recipient:
-        recipient = recipient.strip()
-        if recipient.startswith('+'):
-            recipient = recipient.lstrip('+')
-        if recipient.startswith('0'):
-            recipient = '233' + recipient[1:]
-        elif not recipient.startswith('233'):
-            recipient = '233' + recipient
-        recipient = '+' + recipient
-    else:
-        app.logger.warning("Attempted to send SMS to an empty recipient number.")
-        return False
-
-    # Construct the final message in the exact multi-line format requested
-    final_message_parts = []
-
-    # 1. Verification Code line
-    if verification_code:
-        final_message_parts.append(f"Verification code: {verification_code}")
-
-    # 2. Name line
-    full_name = f"{first_name} {last_name}".strip()
-    if full_name:
-        final_message_parts.append(f"Name: {full_name}")
-
-    # 3. Separator line (only if there's header content AND a message body)
-    if (verification_code or full_name) and message.strip():
-        final_message_parts.append(".....................................")
-
-    # 4. Admin message body
-    if message.strip():
-        final_message_parts.append(message.strip())
-
-    # 5. Fixed footer
-    final_message_parts.append("From: Kenyasi N1 Youth association")
-
-    # Join all parts with newlines
-    final_message = "\n".join(final_message_parts)
+    print("DEBUG: Simulating SMS sending...")
+    print(f"To: {recipient}")
+    print(f"Message: Verification code: {verification_code}\nName: {first_name} {last_name}\n.....................................\n{message}\nFrom: Kenyasi N1 Youth association")
+    # In a real application, integrate with an SMS API (e.g., Twilio, Nexmo, Arkesel)
+    # This is a placeholder for demonstration purposes.
+    return True # Simulate success for now
 
 
-    payload = {
-        "action": "send-sms",
-        "api_key": api_key,
-        "to": recipient,
-        "from": sender_id,
-        "sms": final_message # Corrected: 'message' to 'sms'
-    }
-
-    try:
-        app.logger.info(f"Attempting to send SMS to {recipient} with message: \n'{final_message}'\n using GET request.") # Added newlines for clearer logging
-        response = requests.get(url, params=payload)
-
-        if not response.ok:
-            app.logger.error(f"Arkesel API returned non-success HTTP status {response.status_code}.")
-            app.logger.error(f"Arkesel Raw Response Text: {response.text}")
-            try:
-                error_data = response.json()
-                app.logger.error(f"Arkesel Parsed Error JSON: {error_data}")
-            except requests.exceptions.JSONDecodeError:
-                app.logger.error("Arkesel response could not be parsed as JSON.")
-            return False
-
-        response_data = response.json()
-        if response_data.get('code') == 'ok':
-            app.logger.info(f"SMS sent successfully to {recipient}. Arkesel response: {response_data}")
-            return True
-        else:
-            error_code = response_data.get('code', 'N/A')
-            error_message = response_data.get('message', 'No specific message from Arkesel.')
-            app.logger.error(f"Failed to send SMS to {recipient}. Arkesel API responded with code: '{error_code}', message: '{error_message}'. Full response: {response_data}")
-            return False
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error sending SMS to {recipient}: {e}")
-        return False
-
-# --- Custom Age Validator ---
-def validate_age_range(form, field):
-    today = date.today()
-    if field.data:
-        age = relativedelta(today, field.data).years
-        if not (18 <= age <= 45):
-            raise ValidationError('Member must be between 18 and 45 years old.')
-
-# --- Flask-Admin Customization ---
-
+# Admin Views
 class MyAdminIndexView(AdminIndexView):
     @expose('/')
     @login_required
     def index(self):
+        # Calculate statistics
         total_members = db.session.query(CommunityMember).count()
-        employment_status_stats = db.session.query(
-            CommunityMember.employment_status, func.count(CommunityMember.id)
-        ).group_by(CommunityMember.employment_status).all()
-        employment_status_dict = {
-            status if status else 'Not Specified': count
-            for status, count in employment_status_stats
-        }
-        gender_stats = db.session.query(
-            CommunityMember.gender, func.count(CommunityMember.id)
-        ).group_by(CommunityMember.gender).all()
-        gender_dict = {
-            gender if gender else 'Not Specified': count
-            for gender, count in gender_stats
-        }
-        area_code_stats = db.session.query(
-            CommunityMember.area_code, func.count(CommunityMember.id)
-        ).group_by(CommunityMember.area_code).order_by(func.count(CommunityMember.id).desc()).limit(5).all()
-        area_code_dict = {
-            code if code else 'Not Specified': count
-            for code, count in area_code_stats
-        }
-        # NEW: Summary of Professions
-        profession_stats = db.session.query(
-            CommunityMember.occupation, func.count(CommunityMember.id)
-        ).group_by(CommunityMember.occupation).order_by(func.count(CommunityMember.id).desc()).all()
-        profession_dict = {
-            prof if prof and prof.strip() else 'Not Specified': count
-            for prof, count in profession_stats
-        }
+
+        employment_status_raw = db.session.query(CommunityMember.employment_status, func.count(CommunityMember.id)).group_by(CommunityMember.employment_status).all()
+        employment_status_dict = {s: c for s, c in employment_status_raw if s is not None}
+
+        gender_raw = db.session.query(CommunityMember.gender, func.count(CommunityMember.id)).group_by(CommunityMember.gender).all()
+        gender_dict = {g: c for g, c in gender_raw if g is not None}
+
+        # Extract area code (first 3 digits of phone number if format is consistent)
+        area_codes = db.session.query(
+            func.substring(CommunityMember.phone_number, 1, 3).label('area_code'),
+            func.count(CommunityMember.id)
+        ).group_by(func.substring(CommunityMember.phone_number, 1, 3)).order_by(func.count(CommunityMember.id).desc()).limit(5).all()
+        area_code_dict = {ac: count for ac, count in area_codes if ac is not None}
+
+        professions_raw = db.session.query(CommunityMember.profession, func.count(CommunityMember.id)).group_by(CommunityMember.profession).all()
+        profession_dict = {p: c for p, c in professions_raw if p is not None}
 
 
         stats = {
@@ -244,31 +151,31 @@ class MyAdminIndexView(AdminIndexView):
             'employment_status': employment_status_dict,
             'gender': gender_dict,
             'area_code': area_code_dict,
-            'professions': profession_dict # Add to stats
+            'professions': profession_dict # Include professions in stats
         }
         return self.render('admin/index.html', stats=stats)
 
-class CommunityMemberForm(FlaskForm):
+# Define the form for CommunityMember
+class CommunityMemberForm(FlaskForm): # Changed from form.BaseForm
     first_name = StringField('First Name', validators=[DataRequired(), Length(max=100)])
     last_name = StringField('Last Name', validators=[DataRequired(), Length(max=100)])
-    # NEW: Add age range validator
-    date_of_birth = DateField('Date of Birth (YYYY-MM-DD)', format='%Y-%m-%d', validators=[DataRequired(), validate_age_range])
+    # Directly apply DatePickerWidget here
+    date_of_birth = DateField('Date of Birth (YYYY-MM-DD)', format='%Y-%m-%d', validators=[DataRequired(), validate_age_range], widget=DatePickerWidget())
     gender = SelectField('Gender', choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')], validators=[DataRequired()])
-    contact_number = StringField('Contact Number', validators=[Optional(), Length(max=20)])
+    phone_number = StringField('Phone Number', validators=[DataRequired(), Length(max=20)]) # RENAMED from contact_number, changed to DataRequired()
     email = StringField('Email', validators=[Optional(), Email(), Length(max=120)])
-    address = TextAreaField('Address', validators=[Optional()])
+    residence = StringField('Residence', validators=[Optional(), Length(max=120)]) # Changed from address to residence
     employment_status = SelectField('Employment Status', choices=[
         ('Employed', 'Employed'), ('Unemployed', 'Unemployed'),
         ('Student', 'Student'), ('Retired', 'Retired'), ('Other', 'Other')
     ], validators=[Optional()])
-    occupation = StringField('Occupation', validators=[Optional(), Length(max=100)])
+    profession = StringField('Occupation', validators=[Optional(), Length(max=100)]) # Changed to Occupation
     employer = StringField('Employer', validators=[Optional(), Length(max=100)])
     parent_guardian_name = StringField('Parent/Guardian Name', validators=[Optional(), Length(max=200)])
     parent_guardian_contact = StringField('Parent/Guardian Contact', validators=[Optional(), Length(max=20)])
     parent_guardian_address = TextAreaField('Parent/Guardian Address', validators=[Optional()])
     area_code = StringField('Area Code', validators=[DataRequired(), Length(min=1, max=10, message="Area Code is required and should be max 10 characters")])
-    # NEW: ID Card Field - compulsory
-    id_card_number = StringField('ID Card Number', validators=[DataRequired(), Length(max=50)])
+    id_card_number = StringField('ID Card Number', validators=[Optional(), Length(max=50)]) # TEMPORARILY Optional for debugging
     submit = SubmitField('Submit')
 
 class SendAllMessagesForm(FlaskForm):
@@ -321,36 +228,49 @@ class CommunityMemberView(ModelView):
     can_delete = True
     can_export = True # Explicitly allow export
 
-    # REMOVED '_actions' from column_list to let Flask-Admin handle the actions column automatically
+    # ADDED '_actions' to column_list to ensure it's rendered as a distinct column
     column_list = [
-        'first_name', 'last_name', 'gender', 'contact_number', 'area_code',
-        'employment_status', 'verification_code', 'id_card_number', 'created_at'
+        'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession', 'date_of_birth', 'residence', 'area_code', 'is_verified', 'registration_date', 'verification_code', 'id_card_number', '_actions'
     ]
-    column_searchable_list = ['first_name', 'last_name', 'email', 'verification_code', 'area_code', 'contact_number', 'id_card_number'] # NEW: id_card_number
-    # MODIFIED: Define column_filters with Flask-Admin filter objects
-    column_filters = [
-        FilterLike(CommunityMember.gender, 'Gender'),
-        FilterLike(CommunityMember.employment_status, 'Employment Status'),
-        FilterLike(CommunityMember.area_code, 'Area Code'),
-        DateBetweenFilter(CommunityMember.created_at, 'Registration Date')
-    ]
-    column_sortable_list = ['first_name', 'last_name', 'created_at']
+    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'residence', 'profession', 'area_code', 'verification_code', 'id_card_number']
+    column_filters = ['gender', 'employment_status', 'is_verified', 'area_code']
+    column_sortable_list = ['first_name', 'last_name', 'registration_date']
 
-    form = CommunityMemberForm
+    form = CommunityMemberForm # Use the custom form
+    form_base_class = FlaskForm # Explicitly set the base form class
 
     list_template = 'admin/community_member_list.html'
 
-    # NEW: Define column_formatters to add custom buttons
-    # These will now be injected into the default actions column created by Flask-Admin
-    column_formatters = {
-        '_actions': lambda v, c, model, name: Markup(f'''
-            <a href="{url_for('communitymember.send_sms_view', member_id=model.id)}" class="btn btn-xs btn-warning" title="Send SMS">
+    # Move print_member_info into the ModelView as an exposed endpoint
+    @expose('/print_member/<int:member_id>')
+    @login_required
+    def print_member_info(self, member_id):
+        member = db.session.get(CommunityMember, member_id)
+        if not member:
+            flash('Community member not found.', 'danger')
+            return redirect(url_for('.index_view')) # Redirect to current view's index
+
+        # Pass the datetime object to the template
+        return render_template('admin/print_member.html', member=member, print_on_load=True, datetime=datetime)
+
+
+    # NEW: Define a method for formatting the actions column
+    def _format_actions_column(self, context, model, name):
+        # 'self' here is the CommunityMemberView instance
+        # Use self.get_url() to generate URLs within the current blueprint
+        print_url = self.get_url('.print_member_info', member_id=model.id)
+        return Markup(f'''
+            <a href="{self.get_url('.send_sms_view', member_id=model.id)}" class="btn btn-xs btn-warning" title="Send SMS">
                 <span class="glyphicon glyphicon-comment"></span> SMS
             </a>
-            <a href="{url_for('print_member_info', member_id=model.id)}" class="btn btn-xs btn-info" title="Print Info" target="_blank">
+            <a href="{print_url}" class="btn btn-xs btn-info" title="Print Info" target="_blank">
                 <span class="glyphicon glyphicon-print"></span> Print
             </a>
         ''')
+
+    # Assign the method to column_formatters
+    column_formatters = {
+        '_actions': _format_actions_column
     }
 
     # Override get_save_return_url to sanitize the URL
@@ -489,11 +409,12 @@ class CommunityMemberView(ModelView):
             self._on_model_change(form, model, True)
             self.session.commit()
             flash('Community member created successfully!', 'success')
+            flash('DEBUG: Redirecting to index view after successful creation.', 'info') # Added debug flash
 
             # NEW: Automatic SMS on save
-            if model.contact_number:
+            if model.phone_number:
                 welcome_message = "You are registered."
-                if send_sms(model.contact_number, welcome_message,
+                if send_sms(model.phone_number, welcome_message,
                             verification_code=model.verification_code,
                             first_name=model.first_name,
                             last_name=model.last_name):
@@ -503,12 +424,13 @@ class CommunityMemberView(ModelView):
             else:
                 flash(f'No contact number for {model.first_name} {model.last_name}. Welcome SMS not sent.', 'warning')
 
-            return True
+            # Explicitly redirect to the list view after successful creation
+            return redirect(self.get_save_return_url(model, True)) # Use get_save_return_url
         except Exception as ex:
             self.session.rollback()
             flash(f'Failed to create record: {str(ex)}', 'error')
             app.logger.error(f"Error creating community member: {ex}")
-            return False
+            return False # Stay on the form if creation fails
 
     def update_model(self, form, model):
         try:
@@ -519,7 +441,8 @@ class CommunityMemberView(ModelView):
             self._on_model_change(form, model, False)
             self.session.commit()
             flash('Community member updated successfully!', 'success')
-            return True
+            flash('DEBUG: Redirecting to index view after update.', 'info') # Added debug flash
+            return redirect(self.get_save_return_url(model, False)) # Use get_save_return_url
         except Exception as ex:
             self.session.rollback()
             flash(f'Failed to update record: {str(ex)}', 'error')
@@ -540,14 +463,14 @@ class CommunityMemberView(ModelView):
                 flash('SMS message cannot be empty.', 'danger')
                 return self.render('admin/send_sms_form.html', member=member, message_text="")
 
-            if member.contact_number:
-                if send_sms(member.contact_number, message,
+            if member.phone_number:
+                if send_sms(member.phone_number, message,
                             verification_code=member.verification_code,
                             first_name=member.first_name,
                             last_name=member.last_name):
-                    flash(f'SMS sent to {member.first_name} {member.last_name} ({member.contact_number})', 'success')
+                    flash(f'SMS sent to {member.first_name} {member.last_name}!', 'success')
                 else:
-                    flash(f'Failed to send SMS to {member.first_name} {member.last_name}. Check logs for details.', 'danger')
+                    flash(f'Failed to send SMS to {member.first_name} {member.last_name}.', 'danger')
             else:
                 flash(f'No contact number for {member.first_name} {member.last_name}. SMS not sent.', 'warning')
 
@@ -568,8 +491,8 @@ class CommunityMemberView(ModelView):
             no_contact_count = 0
 
             for member in all_members:
-                if member.contact_number:
-                    if send_sms(member.contact_number, message,
+                if member.phone_number:
+                    if send_sms(member.phone_number, message,
                                 verification_code=member.verification_code,
                                 first_name=member.first_name,
                                 last_name=member.last_name):
@@ -580,28 +503,32 @@ class CommunityMemberView(ModelView):
                     no_contact_count += 1
 
             flash(f'Bulk SMS operation completed: {sent_count} sent, {failed_count} failed, {no_contact_count} members had no contact number.', 'info')
-            return redirect(url_for('admin.index'))
+            return redirect(url_for('communitymember.index_view')) # Redirect to community member list
 
         return self.render('admin/send_all_sms_form.html', form=form)
 
 
-# --- Flask-Admin Initialization ---
-admin = Admin(app, name='Community Members Admin', template_mode='bootstrap3',
-              index_view=MyAdminIndexView(url='/admin'))
+# Flask-Admin Setup
+admin = Admin(app, name='Community Database', template_mode='bootstrap3', index_view=MyAdminIndexView())
 
-admin.add_view(CommunityMemberView(CommunityMember, db.session, name='Community Members'))
+admin.add_view(ModelView(User, db.session, category='Admin'))
+admin.add_view(CommunityMemberView(CommunityMember, db.session))
 
-# --- Login Form ---
+
+# Login Form
 class LoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
     remember_me = BooleanField('Remember Me')
     submit = SubmitField('Login')
 
-# --- Routes ---
+# Routes
 @app.route('/')
-def index():
-    return redirect(url_for('login'))
+def home():
+    if current_user.is_authenticated:
+        # Redirect to Flask-Admin dashboard if logged in
+        return redirect(url_for('admin.index'))
+    return render_template('home.html') # A simple public home page if not logged in
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -613,25 +540,7 @@ def login():
         username_attempt = form.username.data
         password_attempt = form.password.data
 
-        # --- DEBUG PRINT STATEMENTS ---
-        print(f"\n--- Login Attempt DEBUG ---")
-        print(f"Attempting login for username: '{username_attempt}'")
-        print(f"Password attempt: '{password_attempt}'")
-        # --- END DEBUG STATEMENTS ---
-
         user = db.session.query(User).filter_by(username=username_attempt).first()
-
-        # --- DEBUG PRINT STATEMENTS ---
-        print(f"User found in DB: {'Yes' if user else 'No'}")
-        if user:
-            print(f"Stored username: '{user.username}'")
-            print(f"Stored password_hash: '{user.password_hash}'")
-            password_check_result = user.check_password(password_attempt)
-            print(f"check_password_hash result: {password_check_result}")
-        else:
-            print(f"User not found in database.")
-        print(f"---------------------------\n")
-        # --- END DEBUG STATEMENTS ---
 
         if user is None or not user.check_password(password_attempt):
             flash('Invalid username or password', 'danger')
@@ -649,7 +558,7 @@ def logout():
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
-# NEW: Excel Export Route
+# Export to Excel Route
 @app.route('/export_members_excel')
 @login_required
 def export_members_excel():
@@ -659,119 +568,82 @@ def export_members_excel():
     data = []
     for member in members:
         data.append({
-            'Name': f"{member.first_name} {member.last_name}",
-            'Verification Code': member.verification_code,
+            'ID': member.id,
+            'First Name': member.first_name,
+            'Last Name': member.last_name,
+            'Phone Number': member.phone_number,
+            'Gender': member.gender,
+            'Email': member.email,
+            'Employment Status': member.employment_status,
+            'Profession': member.profession,
+            'Date of Birth': member.date_of_birth.strftime('%Y-%m-%d') if member.date_of_birth else 'N/A',
+            'Residence': member.residence,
             'Area Code': member.area_code,
+            'Is Verified': member.is_verified,
+            'Registration Date': member.registration_date.strftime('%Y-%m-%d %H:%M:%S') if member.registration_date else 'N/A',
+            'Verification Code': member.verification_code,
             'ID Card Number': member.id_card_number
         })
-    
     df = pd.DataFrame(data)
-    
-    # Create an in-memory BytesIO object to save the Excel file
+
+    # Create Excel file in memory
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Community Members')
-    output.seek(0) # Go to the beginning of the stream
+    writer = pd.ExcelWriter(output, engine='xlsxwriter') # Using xlsxwriter for broader compatibility
+    df.to_excel(writer, index=False, sheet_name='CommunityMembers')
+    writer.close()
+    output.seek(0)
 
-    # Send the file as a response
-    return send_file(output,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     download_name=f'community_members_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
-                     as_attachment=True)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name=f'community_members_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
+        as_attachment=True
+    )
 
-
-@app.route('/print_member/<int:member_id>')
-@login_required
-def print_member_info(member_id):
-    member = db.session.get(CommunityMember, member_id)
-    if not member:
-        flash('Community member not found.', 'danger')
-        return redirect(url_for('communitymember.index_view'))
-
-    # Pass the datetime object to the template
-    return render_template('admin/print_member.html', member=member, print_on_load=True, datetime=datetime)
-
-
-# --- Flask CLI Commands for Database Management ---
-@app.cli.command("init-db")
-def init_db_command():
-    """Clear existing data and create new tables, then add/update admin user."""
-    print("Attempting to initialize database...")
+# Database Initialization (for development/first run)
+# Moved from @app.before_first_request decorator
+def initialize_database():
     with app.app_context():
-        # IMPORTANT: For PostgreSQL, db.drop_all() should be used with extreme caution.
-        # It will wipe all data. For initial setup or development, uncommenting this is fine.
-        db.drop_all() # UNCOMMENT THIS LINE TEMPORARILY
+        # Always drop and create all tables to ensure schema is up-to-date
+        # This is for development convenience. In production, use migrations.
+        print("Dropping all existing tables...")
+        db.drop_all()
+        print("Creating all new tables...")
         db.create_all()
+        print("Tables created successfully.")
 
-        # Define the NEW admin credentials
-        new_admin_username = 'user'
-        new_admin_password = 'executive@2025'
-
-        admin_user = db.session.query(User).filter_by(username=new_admin_username).first()
-        if not admin_user:
-            admin_user = User(username=new_admin_username)
-            admin_user.set_password(new_admin_password)
+        # Create a default admin user if none exists
+        # This query will now run on a fresh, newly created database.
+        if not User.query.filter_by(username='user').first():
+            admin_user = User(username='user')
+            admin_user.set_password('executive@2025')
             db.session.add(admin_user)
             db.session.commit()
-            print(f"Database initialized: Tables created and admin user '{new_admin_username}' (password '{new_admin_password}') created.")
+            print("Default admin user created: user/executive@2025")
         else:
-            # If admin user exists, update its password if it's different
-            if not admin_user.check_password(new_admin_password):
-                admin_user.set_password(new_admin_password)
+            # If user exists (e.g., from a previous run where tables weren't dropped),
+            # ensure its password is correct.
+            admin_user = User.query.filter_by(username='user').first()
+            if not admin_user.check_password('executive@2025'):
+                admin_user.set_password('executive@2025')
                 db.session.commit()
-                print(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}'.")
+                print("Admin user 'user' already exists. Password reset to 'executive@2025'.")
             else:
-                print(f"Database tables created. Admin user '{new_admin_username}' already exists (not created again).")
+                print("Admin user 'user' already exists and password is correct.")
 
         # Optional: Remove old users if they exist and are not the new active user
         old_usernames_to_clean = ['admin', 'k1youthassociation', 'executive']
         for old_user_name in old_usernames_to_clean:
-            if old_user_name != new_admin_username:
+            if old_user_name != 'user': # Ensure we don't delete the current user
                 old_user = db.session.query(User).filter_by(username=old_user_name).first()
                 if old_user:
                     db.session.delete(old_user)
                     db.session.commit()
                     print(f"Old '{old_user_name}' user removed from database.")
 
+        print("Database initialization complete.")
 
-    print("Database initialization complete.")
-
-
+# Run the app
 if __name__ == '__main__':
-    # This block is for development use (python app.py) and is NOT run by Gunicorn.
-    # It ensures tables exist and the specific admin user is created/updated for local dev.
-    with app.app_context():
-        db.create_all() # Ensure tables exist for dev
-
-        # Define the new admin credentials for local run
-        new_admin_username = 'user'
-        new_admin_password = 'executive@2025'
-
-        admin_user = db.session.query(User).filter_by(username=new_admin_username).first()
-        if not admin_user:
-            admin_user = User(username=new_admin_username)
-            admin_user.set_password(new_admin_password)
-            db.session.add(admin_user)
-            db.session.commit()
-            app.logger.info(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
-            print(f"Initial admin user '{new_admin_username}' created with password '{new_admin_password}'")
-        else:
-            # Ensure password is correct for local dev convenience
-            if not admin_user.check_password(new_admin_password):
-                admin_user.set_password(new_admin_password)
-                db.session.commit()
-                app.logger.info(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
-                print(f"Admin user '{new_admin_username}' already exists. Password reset to '{new_admin_password}' for local dev.")
-
-        # Optional: Remove old users if they exist and are not the new active user
-        old_usernames_to_clean = ['admin', 'k1youthassociation', 'executive']
-        for old_user_name in old_usernames_to_clean:
-            if old_user_name != new_admin_username:
-                old_user = db.session.query(User).filter_by(username=old_user_name).first()
-                if old_user:
-                    db.session.delete(old_user)
-                    db.session.commit()
-                    app.logger.info(f"Old '{old_user_name}' user removed for local dev.")
-
-
+    initialize_database() # Call the function directly
     app.run(debug=True)

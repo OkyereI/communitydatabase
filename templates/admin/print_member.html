@@ -66,9 +66,11 @@
             <p><span class="info-label">Full Name:</span> <span class="info-value">{{ member.first_name }} {{ member.last_name }}</span></p>
             <p><span class="info-label">Date of Birth:</span> <span class="info-value">{{ member.date_of_birth.strftime('%Y-%m-%d') }}</span></p>
             <p><span class="info-label">Gender:</span> <span class="info-value">{{ member.gender }}</span></p>
-            <p><span class="info-label">Contact Number:</span> <span class="info-value">{{ member.contact_number if member.contact_number else 'N/A' }}</span></p>
+            {# Corrected: Use phone_number instead of contact_number #}
+            <p><span class="info-label">Contact Number:</span> <span class="info-value">{{ member.phone_number if member.phone_number else 'N/A' }}</span></p>
             <p><span class="info-label">Email:</span> <span class="info-value">{{ member.email if member.email else 'N/A' }}</span></p>
-            <p><span class="info-label">Address:</span> <span class="info-value">{{ member.address if member.address else 'N/A' }}</span></p>
+            {# Corrected: Use residence instead of address #}
+            <p><span class="info-label">Address:</span> <span class="info-value">{{ member.residence if member.residence else 'N/A' }}</span></p>
             <p><span class="info-label">ID Card Number:</span> <span class="info-value">{{ member.id_card_number }}</span></p>
             <p><span class="info-label">Verification Code:</span> <span class="info-value">{{ member.verification_code }}</span></p>
         </div>
@@ -76,7 +78,8 @@
         <div class="info-section">
             <h2>Employment Details</h2>
             <p><span class="info-label">Employment Status:</span> <span class="info-value">{{ member.employment_status if member.employment_status else 'N/A' }}</span></p>
-            <p><span class="info-label">Occupation:</span> <span class="info-value">{{ member.occupation if member.occupation else 'N/A' }}</span></p>
+            {# Corrected: Use profession instead of occupation #}
+            <p><span class="info-label">Occupation:</span> <span class="info-value">{{ member.profession if member.profession else 'N/A' }}</span></p>
             <p><span class="info-label">Employer:</span> <span class="info-value">{{ member.employer if member.employer else 'N/A' }}</span></p>
         </div>
 
@@ -90,8 +93,9 @@
         <div class="info-section">
             <h2>Association Details</h2>
             <p><span class="info-label">Area Code:</span> <span class="info-value">{{ member.area_code }}</span></p>
-            <p><span class="info-label">Registered On:</span> <span class="info-value">{{ member.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
-            <p><span class="info-label">Last Updated:</span> <span class="info-value">{{ member.updated_at.strftime('%Y-%m-%d %H:%M:%S') if member.updated_at else 'N/A' }}</span></p>
+            {# Corrected: Use registration_date instead of created_at #}
+            <p><span class="info-label">Registered On:</span> <span class="info-value">{{ member.registration_date.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+            {# Removed updated_at as it does not exist in the model #}
         </div>
 
         <div class="no-print text-center" style="margin-top: 30px;">
