@@ -13,7 +13,6 @@ from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.actions import action
 from flask_admin.contrib.sqla import ModelView
 from flask_admin.contrib.sqla.filters import FilterLike, DateBetweenFilter
-from flask_admin.model.filters import BaseFilter # Corrected import for BaseFilter
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, TextAreaField, IntegerField, BooleanField, SubmitField, PasswordField, DateField
 from wtforms.validators import DataRequired, Length, Optional, Regexp, Email, ValidationError
@@ -87,14 +86,12 @@ class CommunityMember(db.Model):
     parent_guardian_name = db.Column(db.String(200), nullable=True)
     parent_guardian_contact = db.Column(db.String(20), nullable=True)
     parent_guardian_address = db.Column(db.Text, nullable=True)
-    date_of_birth = db.Column(db.Date, nullable=False) # ADDED: date_of_birth column
-    residence = db.Column(db.Text, nullable=True) # ADDED: residence column
     area_code = db.Column(db.String(10), nullable=False)
     verification_code = db.Column(db.String(20), unique=True, nullable=True)
     registration_date = db.Column(db.DateTime, default=datetime.utcnow)
     id_card_number = db.Column(db.String(50), unique=True, nullable=False) # Changed to nullable=False
-    educational_level = db.Column(db.String(50), nullable=True)
-
+    date_of_birth = db.Column(db.Date, nullable=True) # Re-added date_of_birth
+    residence = db.Column(db.String(120), nullable=True) # Re-added residence
 
     def __repr__(self):
         return f'<CommunityMember {self.first_name} {self.last_name}>'
@@ -238,18 +235,13 @@ class MyAdminIndexView(AdminIndexView):
             prof if prof and prof.strip() else 'Not Specified': count
             for prof, count in profession_stats
         }
-        # ADDED: Educational Level Statistics
-        educational_level_raw = db.session.query(CommunityMember.educational_level, func.count(CommunityMember.id)).group_by(CommunityMember.educational_level).all()
-        educational_level_dict = {el: c for el, c in educational_level_raw if el is not None}
-
 
         stats = {
             'total_members': total_members,
             'employment_status': employment_status_dict,
             'gender': gender_dict,
             'area_code': area_code_dict,
-            'professions': profession_dict,
-            'educational_level': educational_level_dict # ADDED: Include educational level in stats
+            'professions': profession_dict
         }
         return self.render('admin/index.html', stats=stats)
 
@@ -272,25 +264,44 @@ class CommunityMemberForm(FlaskForm):
     parent_guardian_address = TextAreaField('Parent/Guardian Address', validators=[Optional()])
     area_code = StringField('Area Code', validators=[DataRequired(), Length(min=1, max=10, message="Area Code is required and should be max 10 characters")])
     id_card_number = StringField('ID Card Number', validators=[DataRequired(), Length(max=50)]) # Changed to DataRequired
-    # ADDED: Educational Level Field to Form
-    educational_level = SelectField('Educational Level', choices=[
-        ('None', 'None'),
-        ('Primary School', 'Primary School'),
-        ('Junior High School', 'Junior High School'),
-        ('Senior High School', 'Senior High School'),
-        ('Vocational/Technical', 'Vocational/Technical'),
-        ('Diploma', 'Diploma'),
-        ('Bachelor\'s Degree', 'Bachelor\'s Degree'),
-        ('Master\'s Degree', 'Master\'s Degree'),
-        ('PhD', 'PhD'),
-        ('Other', 'Other')
-    ], validators=[Optional()])
     submit = SubmitField('Submit')
 
 class SendAllMessagesForm(FlaskForm):
     message = TextAreaField('Message to All Members', validators=[DataRequired(), Length(min=10, max=1600)],
                             render_kw={"placeholder": "Enter your message here. The system will automatically add the member's Verification Code and Name as a header, and 'From: Kenyasi N1 Youth association' as a footer."})
     submit = SubmitField('Send Message to All')
+
+# Define a simple Pagination class that mimics the essential attributes expected by model_list.html
+# This is a fallback if Flask-Admin's default pagination context isn't fully passed.
+class CustomPagination:
+    def __init__(self, items, page, per_page, total, sort_field=None, sort_desc=None, search_query=None, filter_args=None):
+        self.items = items
+        self.page = page
+        self.per_page = per_page
+        self.total = total
+        self.sort_field = sort_field
+        self.sort_desc = sort_desc
+        self.search_query = search_query
+        self.filter_args = filter_args if filter_args is not None else []
+
+        # Calculate total pages, has_prev, has_next etc.
+        self.num_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+        self.has_prev = self.page > 0
+        self.has_next = (self.page + 1) * self.per_page < self.total
+        self.offset = self.page * self.per_page
+        self.count = len(items) # Number of items on current page
+
+    def iter_pages(self, left_edge=2, right_edge=2, left_current=2, right_current=3):
+        # This implementation is copied from Flask-Admin's Pagination for compatibility
+        last_page = self.num_pages - 1
+        for num in range(0, self.num_pages):
+            if num < left_edge or \
+               (num > self.page - left_current - 1 and \
+                num < self.page + right_current) or \
+               num > last_page - right_edge:
+                yield num
+            else:
+                yield None
 
 class CommunityMemberView(ModelView):
     def is_accessible(self):
@@ -305,15 +316,12 @@ class CommunityMemberView(ModelView):
     can_delete = True
     can_export = True
 
-    # MODIFIED: Use first_name and last_name directly in column_list
     column_list = [
         'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession',
-        'date_of_birth', 'residence', 'area_code', 'verification_code', 'id_card_number', 'educational_level', 'registration_date', '_actions'
+        'date_of_birth', 'residence', 'area_code', 'verification_code', 'id_card_number', 'registration_date', '_actions'
     ]
-    # MODIFIED: Use first_name and last_name in column_searchable_list
-    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'verification_code', 'area_code', 'id_card_number', 'residence', 'profession', 'educational_level']
+    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'verification_code', 'area_code', 'id_card_number', 'residence', 'profession']
     
-    # MODIFIED: Use first_name and last_name in column_filters
     column_filters = [
         FilterLike(CommunityMember.first_name, 'First Name'),
         FilterLike(CommunityMember.last_name, 'Last Name'),
@@ -322,11 +330,9 @@ class CommunityMemberView(ModelView):
         FilterLike(CommunityMember.area_code, 'Area Code'),
         FilterLike(CommunityMember.verification_code, 'Verification Code'),
         FilterLike(CommunityMember.id_card_number, 'ID Card Number'),
-        FilterLike(CommunityMember.educational_level, 'Educational Level'), # ADDED
         DateBetweenFilter(CommunityMember.registration_date, 'Registration Date')
     ]
-    # MODIFIED: Use first_name and last_name in column_sortable_list
-    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth', 'educational_level']
+    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth']
 
     form = CommunityMemberForm
 
@@ -341,7 +347,8 @@ class CommunityMemberView(ModelView):
         edit_url = self.get_url('.edit_view', id=model.id, url=self.get_save_return_url(model, False))
         delete_url = self.get_url('.delete_view', id=model.id, url=self.get_save_return_url(model, False))
         send_sms_url = self.get_url('.send_sms_view', member_id=model.id)
-        print_url = self.get_url('.print_member_info', member_id=model.id)
+        # Corrected: Use url_for directly for global route 'print_member_info'
+        print_url = url_for('print_member_info', member_id=model.id) 
 
         return Markup(f'''
             <a href="{edit_url}" class="btn btn-xs btn-primary" title="Edit record">
@@ -431,7 +438,7 @@ class CommunityMemberView(ModelView):
                             break
                     # Add handling for other filter types if you use them
                     # For simple equality filters on Enum/String columns, the column name is sufficient
-                    elif isinstance(filter_obj, BaseFilter) and filter_obj.column.key == column_name and operation == 'eq': # Assuming 'eq' for simple dropdowns
+                    elif hasattr(filter_obj, 'column') and filter_obj.column.key == column_name and operation == 'eq': # Assuming 'eq' for simple dropdowns
                         col = getattr(self.model, column_name, None)
                         if col is not None:
                             query = query.filter(col == value)
@@ -459,34 +466,6 @@ class CommunityMemberView(ModelView):
         items = query.limit(per_page).offset(page * per_page).all()
 
         # Create the custom Pagination object
-        class CustomPagination:
-            def __init__(self, items, page, per_page, total, sort_field=None, sort_desc=None, search_query=None, filter_args=None):
-                self.items = items
-                self.page = page
-                self.per_page = per_page
-                self.total = total
-                self.sort_field = sort_field
-                self.sort_desc = sort_desc
-                self.search_query = search_query
-                self.filter_args = filter_args if filter_args is not None else []
-
-                self.num_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
-                self.has_prev = self.page > 0
-                self.has_next = (self.page + 1) * self.per_page < self.total
-                self.offset = self.page * self.per_page
-                self.count = len(items)
-
-            def iter_pages(self, left_edge=2, right_edge=2, left_current=2, right_current=3):
-                last_page = self.num_pages - 1
-                for num in range(0, self.num_pages):
-                    if num < left_edge or \
-                       (num > self.page - left_current - 1 and \
-                        num < self.page + right_current) or \
-                       num > last_page - right_edge:
-                        yield num
-                    else:
-                        yield None
-
         model_list = CustomPagination(
             items,
             page,
@@ -753,8 +732,8 @@ def export_members_excel():
     for member in members:
         data.append({
             'ID': member.id,
-            'First Name': member.first_name, # Changed
-            'Last Name': member.last_name,   # Changed
+            'First Name': member.first_name,
+            'Last Name': member.last_name,
             'Phone Number': member.phone_number,
             'Gender': member.gender,
             'Email': member.email,
@@ -765,7 +744,6 @@ def export_members_excel():
             'Area Code': member.area_code,
             'Verification Code': member.verification_code,
             'ID Card Number': member.id_card_number,
-            'Educational Level': member.educational_level if member.educational_level else 'N/A', # ADDED
             'Registration Date': member.registration_date.strftime('%Y-%m-%d %H:%M:%S') if member.registration_date else 'N/A'
         })
     
@@ -793,7 +771,7 @@ def print_member_info(member_id):
     return render_template('admin/print_member.html', member=member, print_on_load=True, datetime=datetime)
 
 
-# Database Initialization (for development/first run)
+# --- Flask CLI Commands for Database Management ---
 @app.cli.command("init-db")
 def init_db_command():
     """Clear existing data and create new tables, then add/update admin user."""
@@ -827,7 +805,7 @@ def init_db_command():
                 if old_user:
                     db.session.delete(old_user)
                     db.session.commit()
-                    print(f"Old '{old_user_name}' user removed from database.")
+                    app.logger.info(f"Old '{old_user_name}' user removed for local dev.")
 
     print("Database initialization complete.")
 
