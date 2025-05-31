@@ -1,8 +1,8 @@
-"""Initial schema creation (fresh start)
+"""Initial database schema
 
-Revision ID: 4ce77ac1869c
+Revision ID: 64043d156bd8 # IMPORTANT: Replace with the actual new ID generated in step 4
 Revises: None
-Create Date: 2025-05-31 15:04:19.683161
+Create Date: 2025-05-31 15:00:00.000000 # This date will be different in your file
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql # IMPORTANT: Import postgresql for Enum
 
 # revision identifiers, used by Alembic.
-revision = '4ce77ac1869c' # This must match the Revision ID in the docstring and filename
+revision = '64043d156bd8' # IMPORTANT: Replace with the actual new ID generated in step 4
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -42,26 +42,28 @@ def upgrade():
     # STEP 3: Create the 'community_member' table
     op.create_table('community_member',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('full_name', sa.String(length=200), nullable=False), # Corrected to full_name as per app.py
-    sa.Column('date_of_birth', sa.Date(), nullable=False),
+    sa.Column('first_name', sa.String(length=100), nullable=False), # Matches app.py_updated
+    sa.Column('last_name', sa.String(length=100), nullable=False), # Matches app.py_updated
+    sa.Column('phone_number', sa.String(length=20), nullable=True), # Matches app.py_updated
     # IMPORTANT: Use postgresql.ENUM and create_type=False for all ENUM columns
-    sa.Column('gender', postgresql.ENUM('Male', 'Female', name='gender_types', create_type=False), nullable=False),
-    sa.Column('phone_number', sa.String(length=20), nullable=True), # Matches app.py
-    sa.Column('email', sa.String(length=120), nullable=True),
+    sa.Column('gender', postgresql.ENUM('Male', 'Female', name='gender_types', create_type=False), nullable=False), # Matches app.py_updated
+    sa.Column('email', sa.String(length=120), nullable=True), # Matches app.py_updated
     # IMPORTANT: Use postgresql.ENUM and create_type=False for all ENUM columns
-    sa.Column('employment_status', postgresql.ENUM('Employed', 'Unemployed', 'Student', 'Retired', name='employment_status_types', create_type=False), nullable=True),
-    sa.Column('profession', sa.String(length=100), nullable=True), # Matches app.py
-    sa.Column('employer', sa.String(length=100), nullable=True), # Matches app.py
-    sa.Column('parent_guardian_name', sa.String(length=200), nullable=True), # Matches app.py
-    sa.Column('parent_guardian_contact', sa.String(length=20), nullable=True), # Matches app.py
-    sa.Column('parent_guardian_address', sa.Text(), nullable=True), # Matches app.py
-    sa.Column('residence', sa.Text(), nullable=True), # Corrected to Text as per app.py
-    sa.Column('area_code', sa.String(length=10), nullable=False), # Matches app.py
-    sa.Column('verification_code', sa.String(length=20), nullable=True), # Matches app.py
-    sa.Column('registration_date', sa.DateTime(), nullable=True), # Matches app.py
-    sa.Column('id_card_number', sa.String(length=50), nullable=False), # Matches app.py
+    sa.Column('employment_status', postgresql.ENUM('Employed', 'Unemployed', 'Student', 'Retired', name='employment_status_types', create_type=False), nullable=True), # Matches app.py_updated
+    sa.Column('profession', sa.String(length=100), nullable=True), # Matches app.py_updated
+    sa.Column('employer', sa.String(length=100), nullable=True), # Matches app.py_updated
+    sa.Column('parent_guardian_name', sa.String(length=200), nullable=True), # Matches app.py_updated
+    sa.Column('parent_guardian_contact', sa.String(length=20), nullable=True), # Matches app.py_updated
+    sa.Column('parent_guardian_address', sa.Text(), nullable=True), # Matches app.py_updated
+    sa.Column('date_of_birth', sa.Date(), nullable=False), # Matches app.py_updated
+    sa.Column('residence', sa.Text(), nullable=True), # Matches app.py_updated
+    sa.Column('area_code', sa.String(length=10), nullable=False), # Matches app.py_updated
+    sa.Column('is_verified', sa.Boolean(), nullable=True), # Matches app.py_updated
+    sa.Column('registration_date', sa.DateTime(), nullable=True), # Matches app.py_updated
+    sa.Column('verification_code', sa.String(length=20), nullable=True), # Matches app.py_updated
+    sa.Column('id_card_number', sa.String(length=50), nullable=False), # Matches app.py_updated
     # IMPORTANT: Use postgresql.ENUM and create_type=False for all ENUM columns
-    sa.Column('educational_level', postgresql.ENUM('None', 'Primary School', 'Junior High School', 'Senior High School', 'Vocational/Technical', 'Diploma', "Bachelor's Degree", "Master's Degree", 'PhD', 'Other', name='educational_level_types', create_type=False), nullable=True),
+    sa.Column('educational_level', postgresql.ENUM('None', 'Primary School', 'Junior High School', 'Senior High School', 'Vocational/Technical', 'Diploma', "Bachelor's Degree", "Master's Degree", 'PhD', 'Other', name='educational_level_types', create_type=False), nullable=True), # Matches app.py_updated
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
     sa.UniqueConstraint('id_card_number'),

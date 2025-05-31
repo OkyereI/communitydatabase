@@ -4,8 +4,8 @@
   <div class="container">
     <div class="row">
       <div class="col-md-8 col-md-offset-2">
-        <h3>Send SMS to {{ member.first_name }} {{ member.last_name }}</h3>
-        <p><strong>Contact Number:</strong> {{ member.contact_number if member.contact_number else 'N/A' }}</p>
+        <h3>Send SMS to {{ member.full_name }}</h3> {# Updated to full_name #}
+        <p><strong>Contact Number:</strong> {{ member.phone_number if member.phone_number else 'N/A' }}</p> {# Updated to phone_number #}
         <p><strong>Verification Code:</strong> {{ member.verification_code if member.verification_code else 'N/A' }}</p>
 
         <hr>
