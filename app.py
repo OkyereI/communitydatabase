@@ -12,6 +12,7 @@ from flask_admin import Admin, AdminIndexView, expose # Added expose
 from flask_admin.contrib.sqla import ModelView
 from flask_admin.form import form
 from flask_admin.model.fields import InlineFormField
+from flask_admin.contrib.sqla.filters import FilterLike, DateBetweenFilter, FilterEqual # Import FilterEqual
 from sqlalchemy.event import listens_for
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Date, Enum, ForeignKey
 from sqlalchemy.orm import sessionmaker, relationship
@@ -29,6 +30,7 @@ from sqlalchemy.sql import func
 from collections import defaultdict
 from werkzeug.security import generate_password_hash, check_password_hash # Added for password hashing
 from flask_wtf import FlaskForm # ADDED: Import FlaskForm
+from flask_migrate import Migrate # ADDED: Import Migrate
 
 
 # For loading environment variables (like DATABASE_URL) from .env file
@@ -46,6 +48,9 @@ db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# ADDED: Initialize Flask-Migrate
+migrate = Migrate(app, db)
 
 # Models
 class User(db.Model, UserMixin):
@@ -135,11 +140,11 @@ class MyAdminIndexView(AdminIndexView):
         gender_raw = db.session.query(CommunityMember.gender, func.count(CommunityMember.id)).group_by(CommunityMember.gender).all()
         gender_dict = {g: c for g, c in gender_raw if g is not None}
 
-        # Extract area code (first 3 digits of phone number if format is consistent)
+        # Extract area code directly from the area_code column
         area_codes = db.session.query(
-            func.substring(CommunityMember.phone_number, 1, 3).label('area_code'),
+            CommunityMember.area_code, # MODIFIED: Use CommunityMember.area_code directly
             func.count(CommunityMember.id)
-        ).group_by(func.substring(CommunityMember.phone_number, 1, 3)).order_by(func.count(CommunityMember.id).desc()).limit(5).all()
+        ).group_by(CommunityMember.area_code).order_by(func.count(CommunityMember.id).desc()).limit(5).all()
         area_code_dict = {ac: count for ac, count in area_codes if ac is not None}
 
         professions_raw = db.session.query(CommunityMember.profession, func.count(CommunityMember.id)).group_by(CommunityMember.profession).all()
@@ -224,17 +229,30 @@ class CommunityMemberView(ModelView):
         return redirect(url_for('login', next=request.url))
 
     can_create = True
-    can_edit = True
-    can_delete = True
+    can_edit = True # Set to True to enable editing
+    can_delete = True # Set to True to enable deleting
     can_export = True # Explicitly allow export
+    can_view_details = True # Set to True to enable details view
 
     # ADDED '_actions' to column_list to ensure it's rendered as a distinct column
     column_list = [
         'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession', 'date_of_birth', 'residence', 'area_code', 'is_verified', 'registration_date', 'verification_code', 'id_card_number', '_actions'
     ]
     column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'residence', 'profession', 'area_code', 'verification_code', 'id_card_number']
-    column_filters = ['gender', 'employment_status', 'is_verified', 'area_code']
-    column_sortable_list = ['first_name', 'last_name', 'registration_date']
+    
+    # Corrected: Define column_filters with explicit filter objects
+    column_filters = [
+        FilterLike(CommunityMember.first_name, 'First Name'),
+        FilterLike(CommunityMember.last_name, 'Last Name'),
+        FilterEqual(CommunityMember.gender, 'Gender'), # Use FilterEqual for exact match dropdowns
+        FilterEqual(CommunityMember.employment_status, 'Employment Status'), # Use FilterEqual
+        FilterEqual(CommunityMember.area_code, 'Area Code'), # Use FilterEqual
+        FilterLike(CommunityMember.verification_code, 'Verification Code'),
+        FilterLike(CommunityMember.id_card_number, 'ID Card Number'),
+        FilterEqual(CommunityMember.is_verified, 'Is Verified'), # Use FilterEqual for boolean
+        DateBetweenFilter(CommunityMember.registration_date, 'Registration Date')
+    ]
+    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth']
 
     form = CommunityMemberForm # Use the custom form
     form_base_class = FlaskForm # Explicitly set the base form class
@@ -254,19 +272,54 @@ class CommunityMemberView(ModelView):
         return render_template('admin/print_member.html', member=member, print_on_load=True, datetime=datetime)
 
 
-    # NEW: Define a method for formatting the actions column
+    # NEW: Define a method for formatting the actions column to include all buttons
     def _format_actions_column(self, context, model, name):
         # 'self' here is the CommunityMemberView instance
         # Use self.get_url() to generate URLs within the current blueprint
-        print_url = self.get_url('.print_member_info', member_id=model.id)
-        return Markup(f'''
-            <a href="{self.get_url('.send_sms_view', member_id=model.id)}" class="btn btn-xs btn-warning" title="Send SMS">
+        member_pk = self.get_pk_value(model) # Get the primary key value robustly
+
+        # Safeguard: Only generate URLs if a valid primary key exists
+        if member_pk is None:
+            return Markup('<span>N/A</span>') # Or a more informative message
+
+        edit_url = self.get_url('.edit_view', id=member_pk, url=request.url)
+        delete_url = self.get_url('.delete_view', id=member_pk, url=request.url)
+        print_url = self.get_url('.print_member_info', member_id=member_pk) # Use member_pk
+        send_sms_url = self.get_url('.send_sms_view', member_id=member_pk)
+
+        actions_html = []
+
+        # Standard Flask-Admin Edit button
+        if self.can_edit:
+            actions_html.append(f'''
+                <a href="{edit_url}" class="btn btn-xs btn-primary" title="Edit record">
+                    <span class="glyphicon glyphicon-pencil"></span>
+                </a>
+            ''')
+        # Standard Flask-Admin Delete button
+        if self.can_delete:
+            actions_html.append(f'''
+                <form class="icon" method="POST" action="{delete_url}">
+                    <button onclick="return confirm('{gettext('Are you sure you want to delete this record?')}')" class="btn btn-xs btn-danger" title="Delete record">
+                        <span class="glyphicon glyphicon-trash"></span>
+                    </button>
+                </form>
+            ''')
+
+        # Custom SMS button
+        actions_html.append(f'''
+            <a href="{send_sms_url}" class="btn btn-xs btn-warning" title="Send SMS">
                 <span class="glyphicon glyphicon-comment"></span> SMS
             </a>
+        ''')
+        # Custom Print button
+        actions_html.append(f'''
             <a href="{print_url}" class="btn btn-xs btn-info" title="Print Info" target="_blank">
                 <span class="glyphicon glyphicon-print"></span> Print
             </a>
         ''')
+
+        return Markup(' '.join(actions_html))
 
     # Assign the method to column_formatters
     column_formatters = {
@@ -275,34 +328,29 @@ class CommunityMemberView(ModelView):
 
     # Override get_save_return_url to sanitize the URL
     def get_save_return_url(self, model, is_created):
-        # Get the 'url' parameter from request.args
-        return_url_param = request.args.get('url')
-        
-        if return_url_param:
-            # Unquote it first to handle URL-encoded characters like %0A, %20
-            decoded_url = urllib.parse.unquote(return_url_param)
-            
-            # Use regex to remove all whitespace (spaces, tabs, newlines)
-            # and then strip any remaining leading/trailing whitespace
-            cleaned_url = re.sub(r'\s+', '', decoded_url).strip()
+        return_url = request.args.get('url')
+        if return_url:
+            # Clean any leading/trailing whitespace or potential newline issues.
+            cleaned_url = urllib.parse.unquote(return_url).strip()
+            # Remove all whitespace
+            cleaned_url = re.sub(r'\s+', '', cleaned_url)
 
-            # Ensure it's an absolute path if it's not empty
-            if cleaned_url and not cleaned_url.startswith('/'):
-                cleaned_url = '/' + cleaned_url
-            
-            final_redirect_url = cleaned_url if cleaned_url else url_for('.index_view')
+            # Validate if it's a proper absolute URL before returning
+            parsed_url = urllib.parse.urlparse(cleaned_url)
+            if parsed_url.scheme and parsed_url.netloc: # Has a scheme (http/https) and network location (domain/IP)
+                return cleaned_url
+            else:
+                # If it's not a proper absolute URL, fall back to index_view
+                app.logger.warning(f"Malformed return URL '{return_url}'. Redirecting to index view.")
+                return url_for('.index_view')
         else:
-            final_redirect_url = url_for('.index_view') # Default fallback
-
-        # Log the final URL before returning
-        app.logger.warning(f"Final redirect URL after sanitization: '{final_redirect_url}'")
-        return final_redirect_url
+            return url_for('.index_view') # Default fallback
 
 
     # Re-implement index_view to manually handle pagination and context
     @expose('/')
     @login_required
-    def index_view(self, **kwargs):
+    def index_view(self, **kwargs): # Reverted to standard self
         # Retrieve pagination, sorting, and filtering parameters from the request
         page = request.args.get('page', type=int, default=0)
         per_page = self.page_size # Use the configured page_size
@@ -323,28 +371,31 @@ class CommunityMemberView(ModelView):
         active_filters = []
         for flt_obj in self.column_filters:
             for arg_key, arg_value in request.args.items():
-                if arg_key.startswith('flt'):
-                    try:
-                        parts = arg_key.split('__')
-                        if len(parts) == 2:
-                            filter_column_key = parts[0].split('_', 1)[1]
-                            filter_operation = parts[1]
+                # Check for filter arguments in the format fltX_0, fltX_1, fltX_2
+                # where X is the filter index.
+                # We need to find the specific filter object that matches the column and operation
+                # from the request arguments.
+                if arg_key.startswith('flt') and arg_key.endswith('_0'): # This is the column key
+                    filter_index = arg_key.replace('flt', '').replace('_0', '')
+                    column_name_from_request = arg_value # This is the column name string (e.g., 'gender')
+                    operation_from_request = request.args.get(f'flt{filter_index}_1')
+                    value_from_request = request.args.get(f'flt{filter_index}_2')
 
-                            if filter_column_key == flt_obj.column.key and filter_operation == flt_obj.operation:
-                                # Sanitize arg_value: remove any newline characters
-                                sanitized_arg_value = arg_value.replace('\n', '').replace('\r', '')
-                                query = flt_obj.apply(query, sanitized_arg_value)
-                                active_filters.append({
-                                    'column': flt_obj.column.key,
-                                    'operation': flt_obj.operation,
-                                    'value': sanitized_arg_value, # Use sanitized value here
-                                    'name': flt_obj.name
-                                })
-                                break
-                    except Exception as e:
-                        app.logger.warning(f"Could not apply filter from {arg_key}={arg_value}: {e}")
-                        continue
-
+                    if column_name_from_request and operation_from_request and value_from_request:
+                        # Find the actual filter object that corresponds to the request parameters
+                        # and apply it.
+                        if flt_obj.column.key == column_name_from_request and flt_obj.operation == operation_from_request:
+                            sanitized_value = value_from_request.replace('\n', '').replace('\r', '')
+                            query = flt_obj.apply(query, sanitized_value)
+                            active_filters.append({
+                                'column': column_name_from_request,
+                                'operation': operation_from_request,
+                                'value': sanitized_value,
+                                'name': flt_obj.name # Use the display name from the filter object
+                            })
+                            # Break from inner loop once this filter is applied
+                            break 
+        
         # Apply sorting
         if sort_field:
             query = self._apply_sort(query, sort_field, sort_desc)
@@ -426,6 +477,18 @@ class CommunityMemberView(ModelView):
 
             # Explicitly redirect to the list view after successful creation
             return redirect(self.get_save_return_url(model, True)) # Use get_save_return_url
+        except IntegrityError as ex: # Catch IntegrityError specifically
+            self.session.rollback()
+            if 'phone_number' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this phone number already exists.', 'error')
+            elif 'email' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this email already exists.', 'error')
+            elif 'id_card_number' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this ID Card Number already exists.', 'error')
+            else:
+                flash(f'Failed to create record due to data integrity: {str(ex)}', 'error')
+            app.logger.error(f"IntegrityError creating community member: {ex}")
+            return False # Stay on the form if creation fails
         except Exception as ex:
             self.session.rollback()
             flash(f'Failed to create record: {str(ex)}', 'error')
@@ -443,6 +506,18 @@ class CommunityMemberView(ModelView):
             flash('Community member updated successfully!', 'success')
             flash('DEBUG: Redirecting to index view after update.', 'info') # Added debug flash
             return redirect(self.get_save_return_url(model, False)) # Use get_save_return_url
+        except IntegrityError as ex: # Catch IntegrityError specifically
+            self.session.rollback()
+            if 'phone_number' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this phone number already exists.', 'error')
+            elif 'email' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this email already exists.', 'error')
+            elif 'id_card_number' in str(ex) and 'unique constraint' in str(ex).lower():
+                flash('A member with this ID Card Number already exists.', 'error')
+            else:
+                flash(f'Failed to update record due to data integrity: {str(ex)}', 'error')
+            app.logger.error(f"IntegrityError updating community member: {ex}")
+            return False
         except Exception as ex:
             self.session.rollback()
             flash(f'Failed to update record: {str(ex)}', 'error')
@@ -506,6 +581,60 @@ class CommunityMemberView(ModelView):
             return redirect(url_for('communitymember.index_view')) # Redirect to community member list
 
         return self.render('admin/send_all_sms_form.html', form=form)
+
+    # Bulk Action: Delete Selected
+    @action('delete', 'Delete Selected', 'Are you sure you want to delete selected members?')
+    def action_delete(self, ids):
+        try:
+            count = db.session.query(self.model).filter(self.model.id.in_(ids)).delete(synchronize_session=False)
+            db.session.commit()
+            flash(gettext('Successfully deleted %(count)s members.', count=count), 'success')
+        except Exception as ex:
+            if isinstance(ex, IntegrityError):
+                flash(gettext('Failed to delete records due to related data. Please delete related records first.'), 'error')
+            else:
+                flash(gettext('Failed to delete members: %(error)s', error=str(ex)), 'error')
+            db.session.rollback()
+        return redirect(url_for('.index_view'))
+
+    # Bulk Action: Send SMS to Selected
+    @action('send_sms_selected', 'Send SMS to Selected', 'Are you sure you want to send SMS to selected members?')
+    def action_send_sms_selected(self, ids):
+        try:
+            members = db.session.query(self.model).filter(self.model.id.in_(ids)).all()
+            sent_count = 0
+            failed_count = 0
+            for member in members:
+                # You might want a form here to let the admin type a message for bulk SMS
+                # For now, a generic message
+                if member.phone_number:
+                    if send_sms(member.phone_number, "This is a bulk message.",
+                                verification_code=member.verification_code,
+                                first_name=member.first_name,
+                                last_name=member.last_name):
+                        sent_count += 1
+                    else:
+                        failed_count += 1
+                else:
+                    no_contact_count += 1
+
+            flash(gettext('Successfully sent SMS to %(sent)s members, %(failed)s failed.', sent=sent_count, failed=failed_count), 'success')
+        except Exception as ex:
+            flash(gettext('Failed to send bulk SMS: %(error)s', error=str(ex)), 'error')
+        return redirect(url_for('.index_view'))
+
+    # Bulk Action: Print Selected Info
+    @action('print_info_selected', 'Print Selected Info', 'Are you sure you want to print information for selected members?')
+    def action_print_info_selected(self, ids):
+        try:
+            # This action would typically generate a single PDF or a zip of PDFs
+            # For simplicity, we'll just flash a message indicating which members are selected
+            members = db.session.query(self.model).filter(self.model.id.in_(ids)).all()
+            member_names = ", ".join([f"{m.first_name} {m.last_name}" for m in members])
+            flash(gettext('Information for selected members: %(members)s marked for printing.', members=member_names), 'success')
+        except Exception as ex:
+            flash(gettext('Failed to mark for printing: %(error)s', error=str(ex)), 'error')
+        return redirect(url_for('.index_view'))
 
 
 # Flask-Admin Setup
@@ -604,16 +733,21 @@ def export_members_excel():
 # Moved from @app.before_first_request decorator
 def initialize_database():
     with app.app_context():
-        # Always drop and create all tables to ensure schema is up-to-date
-        # This is for development convenience. In production, use migrations.
-        print("Dropping all existing tables...")
-        db.drop_all()
-        print("Creating all new tables...")
-        db.create_all()
-        print("Tables created successfully.")
+        # IMPORTANT: For production, do NOT use db.drop_all() and db.create_all().
+        # Use Flask-Migrate (Alembic) for schema management.
+        #
+        # To set up migrations:
+        # 1. pip install Flask-Migrate
+        # 2. flask db init (one-time)
+        # 3. flask db migrate -m "Initial migration" (after model changes)
+        # 4. flask db upgrade (to apply migrations to the database)
+        #
+        # For development, if you need to wipe and recreate the database:
+        # db.drop_all()
+        # db.create_all()
+        # print("Tables dropped and recreated for development.")
 
         # Create a default admin user if none exists
-        # This query will now run on a fresh, newly created database.
         if not User.query.filter_by(username='user').first():
             admin_user = User(username='user')
             admin_user.set_password('executive@2025')
@@ -621,8 +755,6 @@ def initialize_database():
             db.session.commit()
             print("Default admin user created: user/executive@2025")
         else:
-            # If user exists (e.g., from a previous run where tables weren't dropped),
-            # ensure its password is correct.
             admin_user = User.query.filter_by(username='user').first()
             if not admin_user.check_password('executive@2025'):
                 admin_user.set_password('executive@2025')
@@ -641,9 +773,17 @@ def initialize_database():
                     db.session.commit()
                     print(f"Old '{old_user_name}' user removed from database.")
 
-        print("Database initialization complete.")
+        print("Database initialization complete (without dropping tables).")
 
 # Run the app
 if __name__ == '__main__':
-    initialize_database() # Call the function directly
+    # When using Flask-Migrate, you typically run `flask db upgrade`
+    # from the command line, not `initialize_database()` directly here
+    # unless you explicitly want to create tables on first run without migrations.
+    # For a fresh start with migrations, comment out `initialize_database()`
+    # and follow the `flask db` commands.
+    #
+    # For this demonstration, we'll keep `initialize_database()`
+    # but it will no longer drop tables, just create the initial user.
+    initialize_database()
     app.run(debug=True)

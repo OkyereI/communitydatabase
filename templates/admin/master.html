@@ -1,42 +1,17 @@
 {% extends admin_base_template %}
 
-{% import 'admin/lib.html' as lib with context %}
-{% import 'admin/macros.html' as macros with context %} {# ADD THIS LINE #}
+{# Flask-Admin provides its own 'lib' and 'macros' internally that are typically available. #}
+{# If you define your own, ensure they don't conflict or extend properly. #}
+{# The previous 'master.html' hardcoded the nav_bar and main layout, which is not how #}
+{# Flask-Admin's modular templates are designed to be used. #}
+{# Reverting to a simpler master.html that extends admin_base_template #}
+{# allows Flask-Admin to inject its default navigation and layout. #}
 
 {% block head_tail %}
     {{ super() }}
+    {# Ensure macros are imported if you intend to use them in child templates #}
+    {% import 'admin/macros.html' as macros with context %}
 {% endblock %}
 
-{% block body %}
-    <div class="row">
-        <div class="col-sm-3 col-md-2 sidebar">
-            {% block nav_bar %}
-            <ul class="nav nav-sidebar">
-                {% for item in admin_view.admin.menu %}
-                    {% if item.is_category %}
-                        <li class="dropdown{% if item.is_active(admin_view) %} active{% endif %}">
-                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">{{ item.name }} <b class="caret"></b></a>
-                            <ul class="dropdown-menu">
-                            {% for subitem in item.get_children(admin_view) %}
-                                <li><a href="{{ subitem.url }}">{{ subitem.name }}</a></li>
-                            {% endfor %}
-                            </ul>
-                        </li>
-                    {% else %}
-                        <li{% if item.is_active(admin_view) %} class="active"{% endif %}>
-                            <a href="{{ item.url }}">{{ item.name }}</a>
-                        </li>
-                    {% endif %}
-                {% endfor %}
-            </ul>
-            {% endblock %}
-        </div>
-        <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 main">
-            {% block page_content %}
-            {% block main_navigation %}{% endblock %}
-            {% block messages %}{% endblock %}
-            {% block body_inner %}{% endblock %}
-            {% endblock %}
-        </div>
-    </div>
-{% endblock %}
+{# No 'body' block override here, let admin_base_template provide the main structure. #}
+{# If you want custom content, use specific blocks provided by admin_base_template, e.g., 'main_menu', 'body_inner'. #}
