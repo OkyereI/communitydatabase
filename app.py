@@ -83,6 +83,12 @@ class CommunityMember(db.Model):
     registration_date = db.Column(db.DateTime, default=datetime.utcnow)
     verification_code = db.Column(db.String(20), unique=True, nullable=True) # Added verification_code
     id_card_number = db.Column(db.String(50), unique=True, nullable=True) # TEMPORARILY nullable=True for debugging
+    # ADDED: Educational Level
+    educational_level = db.Column(db.Enum('None', 'Primary School', 'Junior High School', 'Senior High School',
+                                           'Vocational/Technical', 'Diploma', 'Bachelor\'s Degree',
+                                           'Master\'s Degree', 'PhD', 'Other', name='educational_level_types'),
+                                  nullable=True)
+
 
     def __repr__(self):
         return f"{self.first_name} {self.last_name}" # Updated __repr__
@@ -150,13 +156,18 @@ class MyAdminIndexView(AdminIndexView):
         professions_raw = db.session.query(CommunityMember.profession, func.count(CommunityMember.id)).group_by(CommunityMember.profession).all()
         profession_dict = {p: c for p, c in professions_raw if p is not None}
 
+        # ADDED: Educational Level Statistics
+        educational_level_raw = db.session.query(CommunityMember.educational_level, func.count(CommunityMember.id)).group_by(CommunityMember.educational_level).all()
+        educational_level_dict = {el: c for el, c in educational_level_raw if el is not None}
+
 
         stats = {
             'total_members': total_members,
             'employment_status': employment_status_dict,
             'gender': gender_dict,
             'area_code': area_code_dict,
-            'professions': profession_dict # Include professions in stats
+            'professions': profession_dict, # Include professions in stats
+            'educational_level': educational_level_dict # ADDED: Include educational level in stats
         }
         return self.render('admin/index.html', stats=stats)
 
@@ -181,6 +192,19 @@ class CommunityMemberForm(FlaskForm): # Changed from form.BaseForm
     parent_guardian_address = TextAreaField('Parent/Guardian Address', validators=[Optional()])
     area_code = StringField('Area Code', validators=[DataRequired(), Length(min=1, max=10, message="Area Code is required and should be max 10 characters")])
     id_card_number = StringField('ID Card Number', validators=[Optional(), Length(max=50)]) # TEMPORARILY Optional for debugging
+    # ADDED: Educational Level Field to Form
+    educational_level = SelectField('Educational Level', choices=[
+        ('None', 'None'),
+        ('Primary School', 'Primary School'),
+        ('Junior High School', 'Junior High School'),
+        ('Senior High School', 'Senior High School'),
+        ('Vocational/Technical', 'Vocational/Technical'),
+        ('Diploma', 'Diploma'),
+        ('Bachelor\'s Degree', 'Bachelor\'s Degree'),
+        ('Master\'s Degree', 'Master\'s Degree'),
+        ('PhD', 'PhD'),
+        ('Other', 'Other')
+    ], validators=[Optional()])
     submit = SubmitField('Submit')
 
 class SendAllMessagesForm(FlaskForm):
@@ -234,11 +258,14 @@ class CommunityMemberView(ModelView):
     can_export = True # Explicitly allow export
     can_view_details = True # Set to True to enable details view
 
-    # ADDED '_actions' to column_list to ensure it's rendered as a distinct column
+    # ADDED 'educational_level' to column_list
     column_list = [
-        'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession', 'date_of_birth', 'residence', 'area_code', 'is_verified', 'registration_date', 'verification_code', 'id_card_number', '_actions'
+        'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession',
+        'educational_level', # ADDED
+        'date_of_birth', 'residence', 'area_code', 'is_verified', 'registration_date', 'verification_code', 'id_card_number', '_actions'
     ]
-    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'residence', 'profession', 'area_code', 'verification_code', 'id_card_number']
+    # ADDED 'educational_level' to column_searchable_list
+    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'residence', 'profession', 'area_code', 'verification_code', 'id_card_number', 'educational_level']
     
     # Corrected: Define column_filters with explicit filter objects
     column_filters = [
@@ -250,9 +277,11 @@ class CommunityMemberView(ModelView):
         FilterLike(CommunityMember.verification_code, 'Verification Code'),
         FilterLike(CommunityMember.id_card_number, 'ID Card Number'),
         FilterEqual(CommunityMember.is_verified, 'Is Verified'), # Use FilterEqual for boolean
-        DateBetweenFilter(CommunityMember.registration_date, 'Registration Date')
+        DateBetweenFilter(CommunityMember.registration_date, 'Registration Date'),
+        FilterEqual(CommunityMember.educational_level, 'Educational Level') # ADDED
     ]
-    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth']
+    # ADDED 'educational_level' to column_sortable_list
+    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth', 'educational_level']
 
     form = CommunityMemberForm # Use the custom form
     form_base_class = FlaskForm # Explicitly set the base form class
@@ -374,7 +403,7 @@ class CommunityMemberView(ModelView):
                 # Check for filter arguments in the format fltX_0, fltX_1, fltX_2
                 # where X is the filter index.
                 # We need to find the specific filter object that matches the column and operation
-                # from the request arguments.
+                # from the request parameters.
                 if arg_key.startswith('flt') and arg_key.endswith('_0'): # This is the column key
                     filter_index = arg_key.replace('flt', '').replace('_0', '')
                     column_name_from_request = arg_value # This is the column name string (e.g., 'gender')
@@ -702,9 +731,9 @@ def export_members_excel():
             'Last Name': member.last_name,
             'Phone Number': member.phone_number,
             'Gender': member.gender,
-            'Email': member.email,
             'Employment Status': member.employment_status,
             'Profession': member.profession,
+            'Educational Level': member.educational_level if member.educational_level else 'N/A', # ADDED
             'Date of Birth': member.date_of_birth.strftime('%Y-%m-%d') if member.date_of_birth else 'N/A',
             'Residence': member.residence,
             'Area Code': member.area_code,
