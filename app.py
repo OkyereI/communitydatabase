@@ -20,6 +20,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from sqlalchemy import func
 from markupsafe import Markup
+from sqlalchemy.exc import IntegrityError # Import IntegrityError
 
 # For Excel export
 import pandas as pd
@@ -77,21 +78,23 @@ class CommunityMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
-    phone_number = db.Column(db.String(20), unique=True, nullable=True) # Changed to nullable=True
-    gender = db.Column(db.String(10), nullable=False) # Changed from Enum to String for simplicity
+    phone_number = db.Column(db.String(20), unique=True, nullable=True)
+    gender = db.Column(db.String(10), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=True)
-    employment_status = db.Column(db.String(50), nullable=True) # Changed from Enum to String for simplicity
+    employment_status = db.Column(db.String(50), nullable=True)
     profession = db.Column(db.String(100), nullable=True)
     employer = db.Column(db.String(100), nullable=True)
     parent_guardian_name = db.Column(db.String(200), nullable=True)
     parent_guardian_contact = db.Column(db.String(20), nullable=True)
     parent_guardian_address = db.Column(db.Text, nullable=True)
+    date_of_birth = db.Column(db.Date, nullable=False)
+    residence = db.Column(db.Text, nullable=True)
     area_code = db.Column(db.String(10), nullable=False)
     verification_code = db.Column(db.String(20), unique=True, nullable=True)
     registration_date = db.Column(db.DateTime, default=datetime.utcnow)
-    id_card_number = db.Column(db.String(50), unique=True, nullable=False) # Changed to nullable=False
-    date_of_birth = db.Column(db.Date, nullable=True) # Re-added date_of_birth
-    residence = db.Column(db.String(120), nullable=True) # Re-added residence
+    id_card_number = db.Column(db.String(50), unique=True, nullable=False)
+    educational_level = db.Column(db.String(50), nullable=True) # RE-ADDED: educational_level column
+
 
     def __repr__(self):
         return f'<CommunityMember {self.first_name} {self.last_name}>'
@@ -111,11 +114,9 @@ def generate_verification_code(area_code: str) -> str:
     return f"{base_string}{random_suffix}"
 
 # --- SMS Sending Function ---
-# This is a placeholder. In a real app, integrate with Arkesel or another SMS API.
 def send_sms(recipient: str, message: str, verification_code: str = "", full_name: str = "") -> bool:
     app.logger.info("DEBUG: Entering send_sms function. Using GET request logic.")
 
-    # These would typically come from app.config
     api_key = app.config.get('ARKESEL_API_KEY')
     sender_id = app.config.get('ARKESEL_SENDER_ID')
     url = "https://sms.arkesel.com/sms/api"
@@ -126,14 +127,13 @@ def send_sms(recipient: str, message: str, verification_code: str = "", full_nam
 
     if recipient:
         recipient = recipient.strip()
-        # Basic formatting for Ghanaian numbers for Arkesel (assuming 02x -> 2332x)
         if recipient.startswith('+'):
             recipient = recipient.lstrip('+')
         if recipient.startswith('0'):
             recipient = '233' + recipient[1:]
         elif not recipient.startswith('233'):
             recipient = '233' + recipient
-        recipient = '+' + recipient # Arkesel prefers +countrycode format
+        recipient = '+' + recipient
     else:
         app.logger.warning("Attempted to send SMS to an empty recipient number.")
         return False
@@ -235,13 +235,17 @@ class MyAdminIndexView(AdminIndexView):
             prof if prof and prof.strip() else 'Not Specified': count
             for prof, count in profession_stats
         }
+        educational_level_raw = db.session.query(CommunityMember.educational_level, func.count(CommunityMember.id)).group_by(CommunityMember.educational_level).all()
+        educational_level_dict = {el: c for el, c in educational_level_raw if el is not None}
+
 
         stats = {
             'total_members': total_members,
             'employment_status': employment_status_dict,
             'gender': gender_dict,
             'area_code': area_code_dict,
-            'professions': profession_dict
+            'professions': profession_dict,
+            'educational_level': educational_level_dict
         }
         return self.render('admin/index.html', stats=stats)
 
@@ -250,7 +254,7 @@ class CommunityMemberForm(FlaskForm):
     last_name = StringField('Last Name', validators=[DataRequired(), Length(max=100)])
     date_of_birth = DateField('Date of Birth (YYYY-MM-DD)', format='%Y-%m-%d', validators=[DataRequired(), validate_age_range])
     gender = SelectField('Gender', choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')], validators=[DataRequired()])
-    phone_number = StringField('Phone Number', validators=[Optional(), Length(max=20)]) # Changed to Optional
+    phone_number = StringField('Phone Number', validators=[Optional(), Length(max=20)])
     email = StringField('Email', validators=[Optional(), Email(), Length(max=120)])
     residence = TextAreaField('Residence', validators=[Optional()])
     employment_status = SelectField('Employment Status', choices=[
@@ -263,7 +267,19 @@ class CommunityMemberForm(FlaskForm):
     parent_guardian_contact = StringField('Parent/Guardian Contact', validators=[Optional(), Length(max=20)])
     parent_guardian_address = TextAreaField('Parent/Guardian Address', validators=[Optional()])
     area_code = StringField('Area Code', validators=[DataRequired(), Length(min=1, max=10, message="Area Code is required and should be max 10 characters")])
-    id_card_number = StringField('ID Card Number', validators=[DataRequired(), Length(max=50)]) # Changed to DataRequired
+    id_card_number = StringField('ID Card Number', validators=[DataRequired(), Length(max=50)])
+    educational_level = SelectField('Educational Level', choices=[ # RE-ADDED: Educational Level Field to Form
+        ('None', 'None'),
+        ('Primary School', 'Primary School'),
+        ('Junior High School', 'Junior High School'),
+        ('Senior High School', 'Senior High School'),
+        ('Vocational/Technical', 'Vocational/Technical'),
+        ('Diploma', 'Diploma'),
+        ('Bachelor\'s Degree', 'Bachelor\'s Degree'),
+        ('Master\'s Degree', 'Master\'s Degree'),
+        ('PhD', 'PhD'),
+        ('Other', 'Other')
+    ], validators=[Optional()])
     submit = SubmitField('Submit')
 
 class SendAllMessagesForm(FlaskForm):
@@ -271,8 +287,6 @@ class SendAllMessagesForm(FlaskForm):
                             render_kw={"placeholder": "Enter your message here. The system will automatically add the member's Verification Code and Name as a header, and 'From: Kenyasi N1 Youth association' as a footer."})
     submit = SubmitField('Send Message to All')
 
-# Define a simple Pagination class that mimics the essential attributes expected by model_list.html
-# This is a fallback if Flask-Admin's default pagination context isn't fully passed.
 class CustomPagination:
     def __init__(self, items, page, per_page, total, sort_field=None, sort_desc=None, search_query=None, filter_args=None):
         self.items = items
@@ -284,15 +298,13 @@ class CustomPagination:
         self.search_query = search_query
         self.filter_args = filter_args if filter_args is not None else []
 
-        # Calculate total pages, has_prev, has_next etc.
         self.num_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
         self.has_prev = self.page > 0
         self.has_next = (self.page + 1) * self.per_page < self.total
         self.offset = self.page * self.per_page
-        self.count = len(items) # Number of items on current page
+        self.count = len(items)
 
     def iter_pages(self, left_edge=2, right_edge=2, left_current=2, right_current=3):
-        # This implementation is copied from Flask-Admin's Pagination for compatibility
         last_page = self.num_pages - 1
         for num in range(0, self.num_pages):
             if num < left_edge or \
@@ -318,9 +330,9 @@ class CommunityMemberView(ModelView):
 
     column_list = [
         'first_name', 'last_name', 'phone_number', 'gender', 'email', 'employment_status', 'profession',
-        'date_of_birth', 'residence', 'area_code', 'verification_code', 'id_card_number', 'registration_date', '_actions'
+        'date_of_birth', 'residence', 'area_code', 'verification_code', 'id_card_number', 'educational_level', 'registration_date', '_actions'
     ]
-    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'verification_code', 'area_code', 'id_card_number', 'residence', 'profession']
+    column_searchable_list = ['first_name', 'last_name', 'phone_number', 'email', 'verification_code', 'area_code', 'id_card_number', 'residence', 'profession', 'educational_level']
     
     column_filters = [
         FilterLike(CommunityMember.first_name, 'First Name'),
@@ -330,25 +342,22 @@ class CommunityMemberView(ModelView):
         FilterLike(CommunityMember.area_code, 'Area Code'),
         FilterLike(CommunityMember.verification_code, 'Verification Code'),
         FilterLike(CommunityMember.id_card_number, 'ID Card Number'),
+        FilterLike(CommunityMember.educational_level, 'Educational Level'), # ADDED
         DateBetweenFilter(CommunityMember.registration_date, 'Registration Date')
     ]
-    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth']
+    column_sortable_list = ['first_name', 'last_name', 'registration_date', 'date_of_birth', 'educational_level']
 
     form = CommunityMemberForm
 
     list_template = 'admin/community_member_list.html'
 
-    actions = ['send_sms_action', 'print_info_action'] # Renamed actions to avoid conflict
+    actions = ['send_sms_action', 'print_info_action']
 
-    # NEW: Define a method for formatting the actions column
     def _actions_formatter(self, context, model, name):
-        # 'self' here is the CommunityMemberView instance
-        # Use self.get_url() to generate URLs within the current blueprint
         edit_url = self.get_url('.edit_view', id=model.id, url=self.get_save_return_url(model, False))
         delete_url = self.get_url('.delete_view', id=model.id, url=self.get_save_return_url(model, False))
         send_sms_url = self.get_url('.send_sms_view', member_id=model.id)
-        # Corrected: Use url_for directly for global route 'print_member_info'
-        print_url = url_for('print_member_info', member_id=model.id) 
+        print_url = url_for('print_member_info', member_id=model.id)
 
         return Markup(f'''
             <a href="{edit_url}" class="btn btn-xs btn-primary" title="Edit record">
@@ -367,7 +376,6 @@ class CommunityMemberView(ModelView):
             </a>
         ''')
 
-    # Assign the method to column_formatters
     column_formatters = {
         '_actions': _actions_formatter
     }
@@ -390,18 +398,15 @@ class CommunityMemberView(ModelView):
     @expose('/')
     @login_required
     def index_view(self, **kwargs):
-        # Retrieve pagination, sorting, and filtering parameters from the request
         page = request.args.get('page', type=int, default=0)
-        per_page = self.page_size # Use the configured page_size
+        per_page = self.page_size
         sort_field = request.args.get('sort', type=str)
-        sort_desc = request.args.get('sort_desc', type=bool, default=False) # Changed to bool
+        sort_desc = request.args.get('sort_desc', type=bool, default=False)
 
         search_query = request.args.get('search', type=str)
 
-        # Start with the base query for the model
         query = self.get_query()
 
-        # Apply search filter if a search query is present
         if search_query and self.column_searchable_list:
             search_filter_clauses = []
             for col_name in self.column_searchable_list:
@@ -411,9 +416,8 @@ class CommunityMemberView(ModelView):
             if search_filter_clauses:
                 query = query.filter(db.or_(*search_filter_clauses))
 
-        # Manually apply column filters based on request arguments
         active_filters = []
-        for i in range(5): # Check for up to 5 filters, adjust as needed
+        for i in range(5):
             flt_col_key = f'flt{i}_0'
             flt_op_key = f'flt{i}_1'
             flt_val_key = f'flt{i}_2'
@@ -423,22 +427,18 @@ class CommunityMemberView(ModelView):
             value = request.args.get(flt_val_key)
 
             if column_name and operation and value:
-                # Find the filter object that matches the column and operation
                 for filter_obj in self.column_filters:
-                    # FilterLike and DateBetweenFilter use column name directly
-                    if isinstance(filter_obj, (FilterLike, DateBetweenFilter)):
-                        if filter_obj.column.key == column_name and filter_obj.operation == operation:
-                            query = filter_obj.apply(query, value)
-                            active_filters.append({
-                                'column': column_name,
-                                'operation': operation,
-                                'value': value,
-                                'name': filter_obj.name # Display name of the filter
-                            })
-                            break
-                    # Add handling for other filter types if you use them
+                    if hasattr(filter_obj, 'column') and filter_obj.column.key == column_name and filter_obj.operation == operation:
+                        query = filter_obj.apply(query, value)
+                        active_filters.append({
+                            'column': column_name,
+                            'operation': operation,
+                            'value': value,
+                            'name': filter_obj.name
+                        })
+                        break
                     # For simple equality filters on Enum/String columns, the column name is sufficient
-                    elif hasattr(filter_obj, 'column') and filter_obj.column.key == column_name and operation == 'eq': # Assuming 'eq' for simple dropdowns
+                    elif not hasattr(filter_obj, 'column') and column_name in [c.identity for c in self.model.__table__.columns] and operation == 'eq':
                         col = getattr(self.model, column_name, None)
                         if col is not None:
                             query = query.filter(col == value)
@@ -446,11 +446,11 @@ class CommunityMemberView(ModelView):
                                 'column': column_name,
                                 'operation': operation,
                                 'value': value,
-                                'name': filter_obj.name
+                                'name': filter_obj.name # You might need a way to get a readable name for this filter
                             })
                             break
 
-        # Apply sorting
+
         if sort_field:
             sort_column = getattr(self.model, sort_field, None)
             if sort_column is not None:
@@ -459,13 +459,10 @@ class CommunityMemberView(ModelView):
                 else:
                     query = query.order_by(sort_column.asc())
 
-        # Get total count before pagination
         total_count = query.count()
 
-        # Fetch data for the current page
         items = query.limit(per_page).offset(page * per_page).all()
 
-        # Create the custom Pagination object
         model_list = CustomPagination(
             items,
             page,
@@ -474,15 +471,14 @@ class CommunityMemberView(ModelView):
             sort_field=sort_field,
             sort_desc=sort_desc,
             search_query=search_query,
-            filter_args=active_filters # Pass active_filters for displaying applied filters
+            filter_args=active_filters
         )
 
-        # Prepare the context dictionary for the template
         template_context = {
             'model_list': model_list,
             'list_columns': self._list_columns,
-            'column_filters': self.column_filters, # This is the full list of available filters
-            'filters': active_filters, # This is the list of currently applied filters
+            'column_filters': self.column_filters,
+            'filters': active_filters,
             'admin_view': self,
             'can_create': self.can_create,
             'can_edit': self.can_edit,
@@ -496,11 +492,10 @@ class CommunityMemberView(ModelView):
             'name': self.name,
             'edit_modal': self.edit_modal,
             'create_modal': self.create_modal,
-            'column_display_actions': True, # Always display the actions column
+            'column_display_actions': True,
             **kwargs
         }
 
-        # Render the custom list template with the prepared context
         return self.render(self.list_template, **template_context)
 
     def create_model(self, form):
@@ -517,7 +512,7 @@ class CommunityMemberView(ModelView):
                 welcome_message = "You are registered."
                 if send_sms(model.phone_number, welcome_message,
                             verification_code=model.verification_code,
-                            full_name=model.full_name): # Use full_name property
+                            full_name=model.full_name):
                     flash(f'Welcome SMS sent to {model.full_name} ({model.phone_number})', 'info')
                 else:
                     flash(f'Failed to send welcome SMS to {model.full_name}. Check logs for details.', 'warning')
@@ -588,7 +583,7 @@ class CommunityMemberView(ModelView):
             if member.phone_number:
                 if send_sms(member.phone_number, message,
                             verification_code=member.verification_code,
-                            full_name=member.full_name): # Use full_name property
+                            full_name=member.full_name):
                     flash(f'SMS sent to {member.full_name} ({member.phone_number})', 'success')
                 else:
                     flash(f'Failed to send SMS to {member.full_name}. Check logs for details.', 'danger')
@@ -610,14 +605,13 @@ class CommunityMemberView(ModelView):
         sent_count = 0
         failed_count = 0
         
-        # A generic message for bulk action, as custom messages per recipient are not feasible here
         generic_message = "A general update from Kenyasi N1 Youth Association."
 
         for member in members:
             if member.phone_number:
                 if send_sms(member.phone_number, generic_message,
                             verification_code=member.verification_code,
-                            full_name=member.full_name): # Use full_name property
+                            full_name=member.full_name):
                     sent_count += 1
                 else:
                     failed_count += 1
@@ -638,10 +632,8 @@ class CommunityMemberView(ModelView):
             return redirect(request.url)
         
         members = db.session.query(CommunityMember).filter(CommunityMember.id.in_(ids)).all()
-        member_names = ", ".join([m.full_name for m in members]) # Use full_name property
+        member_names = ", ".join([m.full_name for m in members])
         flash(f'Information for {member_names} marked for printing. (Implementation for batch printing needs to be added)', 'info')
-        # For batch printing, you would typically generate a single PDF or a printable page with all selected members.
-        # This action currently just flashes a message.
         return redirect(request.url)
 
 
@@ -661,7 +653,7 @@ class CommunityMemberView(ModelView):
                 if member.phone_number:
                     if send_sms(member.phone_number, message,
                                 verification_code=member.verification_code,
-                                full_name=member.full_name): # Use full_name property
+                                full_name=member.full_name):
                         sent_count += 1
                     else:
                         failed_count += 1
@@ -744,13 +736,14 @@ def export_members_excel():
             'Area Code': member.area_code,
             'Verification Code': member.verification_code,
             'ID Card Number': member.id_card_number,
+            'Educational Level': member.educational_level if member.educational_level else 'N/A',
             'Registration Date': member.registration_date.strftime('%Y-%m-%d %H:%M:%S') if member.registration_date else 'N/A'
         })
     
     df = pd.DataFrame(data)
     
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer: # Using xlsxwriter for broader compatibility
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Community Members')
     output.seek(0)
 
